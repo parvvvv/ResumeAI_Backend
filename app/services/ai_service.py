@@ -124,6 +124,8 @@ async def tailor_resume(base_data: dict, job_description: str, raw_text_length: 
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=TailorResponse,
+                    temperature=1.0,
+                    top_p=0.95,
                 ),
             )
 
