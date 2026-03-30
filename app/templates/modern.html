@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ resume.personalInfo.fullName or "Resume" }}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Charis+SIL:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Charis SIL', 'Charter', 'Georgia', serif;
+            font-size: 9pt;
+            line-height: 1.35;
+            color: #000;
+            background: #fff;
+            max-height: 279.4mm; /* letterpaper height */
+            overflow: hidden;
+        }
+
+        @page {
+            size: letter;
+            margin: 0.6cm 1.8cm 1.8cm 1.8cm;
+        }
+
+        .resume {
+            max-width: 100%;
+        }
+
+        /* ── Links ── */
+        a {
+            color: #000;
+            text-decoration: none;
+        }
+
+        /* ── Header ── */
+        .header {
+            text-align: center;
+            margin-bottom: 6px;
+        }
+
+        .header h1 {
+            font-size: 16pt;
+            font-weight: 700;
+            margin-bottom: 4px;
+            letter-spacing: 0.3px;
+        }
+
+        .contact-info {
+            font-size: 9pt;
+            color: #000;
+            line-height: 1.4;
+        }
+
+        .contact-info .sep {
+            margin: 0 5px;
+            color: #666;
+        }
+
+        /* ── Section ── */
+        .section {
+            margin-bottom: 8px;
+        }
+
+        .section-title {
+            font-size: 10.5pt;
+            font-weight: 700;
+            border-bottom: 1px solid #000;
+            padding-bottom: 1px;
+            margin-bottom: 4px;
+            padding-top: 2px;
+        }
+
+        /* ── Experience & Project Entry ── */
+        .entry {
+            margin-bottom: 6px;
+        }
+
+        .entry-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        .entry-company {
+            font-weight: 700;
+            font-size: 9.5pt;
+        }
+
+        .entry-location {
+            font-weight: 400;
+        }
+
+        .entry-date {
+            font-size: 9pt;
+            white-space: nowrap;
+            text-align: right;
+        }
+
+        .entry-description {
+            font-size: 9pt;
+            margin-bottom: 3px;
+        }
+
+        /* Bullet list */
+        .bullet-list {
+            list-style: disc;
+            padding-left: 15px;
+            margin-top: 2px;
+            margin-bottom: 2px;
+        }
+
+        .bullet-list li {
+            margin-bottom: 2px;
+            font-size: 9pt;
+            line-height: 1.35;
+        }
+
+        .tech-stack {
+            font-size: 9pt;
+            margin-top: 1px;
+            padding-left: 15px;
+        }
+
+        .tech-stack strong {
+            font-weight: 600;
+        }
+
+        /* ── Skills ── */
+        .skill-row {
+            font-size: 9pt;
+            margin-bottom: 3px;
+            line-height: 1.35;
+        }
+
+        .skill-category {
+            font-weight: 700;
+        }
+
+        /* ── Projects ── */
+        .project-title {
+            font-weight: 700;
+            font-size: 9.5pt;
+            text-decoration: underline;
+        }
+
+        .project-subtitle {
+            font-weight: 400;
+            font-size: 9pt;
+            font-style: italic;
+        }
+
+        /* ── Education ── */
+        .edu-entry {
+            margin-bottom: 2px;
+        }
+
+        .edu-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        .edu-institution {
+            font-weight: 700;
+            font-size: 9.5pt;
+        }
+
+        .edu-degree {
+            font-size: 9pt;
+        }
+
+        .edu-date {
+            font-size: 9pt;
+            white-space: nowrap;
+        }
+
+        .edu-score {
+            font-size: 9pt;
+        }
+    </style>
+</head>
+<body>
+    <div class="resume">
+        <!-- ── Header ── -->
+        {% if resume.personalInfo %}
+        <div class="header">
+            {% if resume.personalInfo.fullName %}
+            <h1>{{ resume.personalInfo.fullName }}</h1>
+            {% endif %}
+            <div class="contact-info">
+                {% set items = [] %}
+                {% if resume.personalInfo.phone %}{% if items.append(resume.personalInfo.phone) %}{% endif %}{% endif %}
+                {% if resume.personalInfo.email %}{% if items.append('<a href="mailto:' ~ resume.personalInfo.email ~ '">✉ ' ~ resume.personalInfo.email ~ '</a>') %}{% endif %}{% endif %}
+                {% if resume.personalInfo.linkedin %}{% set ln = resume.personalInfo.linkedin | replace('https://', '') | replace('http://', '') %}{% if items.append('<a href="https://' ~ ln ~ '">🔗 ' ~ ln ~ '</a>') %}{% endif %}{% endif %}
+                {% if resume.personalInfo.github %}{% set gh = resume.personalInfo.github | replace('https://', '') | replace('http://', '') %}{% if items.append('<a href="https://' ~ gh ~ '">⌨ ' ~ gh ~ '</a>') %}{% endif %}{% endif %}
+                {{ items | join(' &nbsp;|&nbsp; ') | safe }}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ── Work Experience ── -->
+        {% if resume.workExperience %}
+        <div class="section">
+            <div class="section-title">Work Experience</div>
+            {% for exp in resume.workExperience %}
+            <div class="entry">
+                <div class="entry-header">
+                    <div>
+                        <span class="entry-company">{{ exp.role }}, {{ exp.company }}</span>
+                        {% if exp.location %}
+                        <span class="entry-location"> – {{ exp.location }}</span>
+                        {% endif %}
+                    </div>
+                    {% if exp.startDate or exp.endDate %}
+                    <span class="entry-date">{{ exp.startDate }}{% if exp.endDate %} – {{ exp.endDate }}{% endif %}</span>
+                    {% endif %}
+                </div>
+                {% if exp.description %}
+                <div class="entry-description">{{ exp.description }}</div>
+                {% endif %}
+                {% if exp.points %}
+                <ul class="bullet-list">
+                    {% for point in exp.points %}
+                    <li>{{ point }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% if exp.techStack %}
+                <div class="tech-stack">• <strong>Tech Stack:</strong> {{ exp.techStack | join(", ") }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- ── Skills ── -->
+        {% if resume.skills %}
+        {% set all_skills = [
+            ("Languages", resume.skills.languages),
+            ("Frameworks", resume.skills.frameworks),
+            ("Databases", resume.skills.databases),
+            ("Tools", resume.skills.tools),
+            ("Cloud Platforms", resume.skills.cloud),
+            ("AI & ML", resume.skills.other),
+        ] %}
+        {% set has_skills = false %}
+        {% for label, items in all_skills %}
+            {% if items %}{% set has_skills = true %}{% endif %}
+        {% endfor %}
+        {% if has_skills or (resume.skills.languages or resume.skills.frameworks or resume.skills.databases or resume.skills.tools or resume.skills.cloud or resume.skills.other) %}
+        <div class="section">
+            <div class="section-title">Skills</div>
+            {% for label, items in all_skills %}
+                {% if items %}
+                <div class="skill-row">
+                    <span class="skill-category">{{ label }}:</span> {{ items | join(", ") }}
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endif %}
+
+        <!-- ── Projects ── -->
+        {% if resume.projects %}
+        <div class="section">
+            <div class="section-title">Projects</div>
+            {% for proj in resume.projects %}
+            <div class="entry">
+                <div>
+                    <span class="project-title">{{ proj.name }}</span>
+                    {% if proj.description %}
+                    <span class="project-subtitle"> – {{ proj.description }}</span>
+                    {% endif %}
+                </div>
+                {% if proj.points %}
+                <ul class="bullet-list">
+                    {% for point in proj.points %}
+                    <li>{{ point }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% if proj.techStack %}
+                <div class="tech-stack">• <strong>Tech Stack:</strong> {{ proj.techStack | join(", ") }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- ── Education ── -->
+        {% if resume.education %}
+        <div class="section">
+            <div class="section-title">Education</div>
+            {% for edu in resume.education %}
+            <div class="edu-entry">
+                <div class="edu-header">
+                    <div>
+                        <span class="edu-institution">{{ edu.institution }}</span>
+                        {% if edu.startYear or edu.endYear %}
+                        <span class="edu-date" style="float:right;">{{ edu.startYear }}{% if edu.endYear %} – {{ edu.endYear }}{% endif %}</span>
+                        {% endif %}
+                        {% if edu.degree or edu.field %}
+                        <span class="edu-degree"> {{ edu.degree }}{% if edu.field %} in {{ edu.field }}{% endif %}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if edu.score %}
+                <div class="edu-score">{{ edu.score }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>

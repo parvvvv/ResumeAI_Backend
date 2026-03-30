@@ -1,0 +1,17 @@
+fastapi[standard]
+uvicorn[standard]
+motor
+pymongo
+python-dotenv
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
+google-genai
+pdfplumber
+weasyprint
+jinja2
+pydantic[email]
+slowapi
+bleach
+structlog
+supabase

@@ -1,0 +1,32 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Uploads
+uploads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+*/.DS_Store
+
+# Python / Backend
+.pytest_cache/
+.coverage
+htmlcov/
