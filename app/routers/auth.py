@@ -3,13 +3,15 @@ Authentication router: signup and login with rate limiting.
 """
 
 from fastapi import APIRouter, HTTPException, status, Request
-from app.models.user import UserSignup, UserLogin, TokenResponse, UserResponse
-from app.services.auth_service import hash_password, verify_password, create_jwt
+from app.models.user import UserSignup, UserLogin, TokenResponse, UserResponse, RefreshTokenRequest, RefreshTokenResponse
+from app.services.auth_service import hash_password, verify_password, create_access_token, create_refresh_token, decode_jwt
+from jose import JWTError
 from app.database import get_database
 from app.security import sanitize_input
 from app.middleware.rate_limit import limiter
 from app.config import settings
 from datetime import datetime, timezone
+from bson.objectid import ObjectId
 import structlog
 
 logger = structlog.get_logger()
@@ -46,9 +48,11 @@ async def signup(request: Request, body: UserSignup):
     logger.info("user_created", user_id=user_id, email=email)
 
     # Issue JWT
-    token = create_jwt(user_id, email)
+    access_token = create_access_token(user_id, email)
+    refresh_token = create_refresh_token(user_id)
     return TokenResponse(
-        access_token=token,
+        access_token=access_token,
+        refresh_token=refresh_token,
         user=UserResponse(id=user_id, email=email),
     )
 
@@ -70,11 +74,48 @@ async def login(request: Request, body: UserLogin):
         )
 
     user_id = str(user["_id"])
-    token = create_jwt(user_id, email)
+    access_token = create_access_token(user_id, email)
+    refresh_token = create_refresh_token(user_id)
 
     logger.info("user_logged_in", user_id=user_id)
 
     return TokenResponse(
-        access_token=token,
+        access_token=access_token,
+        refresh_token=refresh_token,
         user=UserResponse(id=user_id, email=email),
+    )
+
+
+@router.post("/refresh", response_model=RefreshTokenResponse)
+async def refresh_token(body: RefreshTokenRequest):
+    """Exchange a valid refresh token for a new access & refresh token pair."""
+    try:
+        payload = decode_jwt(body.refresh_token, expected_type="refresh")
+        user_id = payload.get("sub")
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
+    db = get_database()
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+        
+    email = user["email"]
+    
+    new_access_token = create_access_token(user_id, email)
+    new_refresh_token = create_refresh_token(user_id)
+    
+    logger.info("token_refreshed", user_id=user_id)
+    
+    return RefreshTokenResponse(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token
     )

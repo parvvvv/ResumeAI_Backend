@@ -15,6 +15,9 @@ load_dotenv(_env_path)
 class Settings:
     """Centralized application settings loaded from environment variables."""
 
+    # --- Environment ---
+    APP_ENV: str = os.getenv("APP_ENV", "local")
+
     # --- AI ---
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = "gemini-3-flash-preview"
@@ -26,7 +29,8 @@ class Settings:
     # --- Authentication ---
     JWT_SECRET: str = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PRODUCTION")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
-    JWT_EXPIRY_HOURS: int = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
+    JWT_EXPIRY_HOURS: int = int(os.getenv("JWT_EXPIRY_HOURS", "6"))
+    JWT_REFRESH_EXPIRY_DAYS: int = int(os.getenv("JWT_REFRESH_EXPIRY_DAYS", "7"))
     BCRYPT_ROUNDS: int = 12
     MIN_PASSWORD_LENGTH: int = 8
 
@@ -44,16 +48,25 @@ class Settings:
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
     SUPABASE_BUCKET: str = os.getenv("SUPABASE_BUCKET", "resumes")
 
+    # --- JSearch API (RapidAPI) ---
+    JSEARCH_API_KEYS: list = []
+    JSEARCH_HOST: str = "jsearch.p.rapidapi.com"
+
     # --- Rate limits ---
     RATE_LIMIT_AUTH: str = "5/minute"
     RATE_LIMIT_AI: str = "10/minute"
     RATE_LIMIT_PDF: str = "20/minute"
     RATE_LIMIT_GENERAL: str = "60/minute"
+    RATE_LIMIT_JOBS: str = "5/minute"
 
     def __init__(self) -> None:
         # Ensure upload directories exist
         self.PDF_DIR.mkdir(parents=True, exist_ok=True)
         self.RESUME_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Parse comma-separated JSearch API keys
+        raw_keys = os.getenv("JSEARCH_API_KEYS", "")
+        self.JSEARCH_API_KEYS = [k.strip() for k in raw_keys.split(",") if k.strip()]
 
         # Warn about insecure defaults
         if self.JWT_SECRET == "CHANGE_ME_IN_PRODUCTION":

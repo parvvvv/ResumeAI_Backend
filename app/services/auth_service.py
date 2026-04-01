@@ -23,19 +23,32 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     )
 
 
-def create_jwt(user_id: str, email: str) -> str:
-    """Create a signed JWT with userId and email in payload."""
+def create_access_token(user_id: str, email: str) -> str:
+    """Create a signed JWT access token with userId and email in payload."""
     expire = datetime.now(timezone.utc) + timedelta(hours=settings.JWT_EXPIRY_HOURS)
     payload = {
         "sub": user_id,
         "email": email,
+        "type": "access",
         "exp": expire,
         "iat": datetime.now(timezone.utc),
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def decode_jwt(token: str) -> dict:
+def create_refresh_token(user_id: str) -> str:
+    """Create a signed JWT refresh token."""
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_EXPIRY_DAYS)
+    payload = {
+        "sub": user_id,
+        "type": "refresh",
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def decode_jwt(token: str, expected_type: str = "access") -> dict:
     """
     Decode and validate a JWT token.
     Returns the payload dict or raises JWTError.
@@ -44,6 +57,8 @@ def decode_jwt(token: str) -> dict:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
         if payload.get("sub") is None:
             raise JWTError("Token missing 'sub' claim")
+        if payload.get("type", "access") != expected_type:
+            raise JWTError(f"Invalid token type. Expected {expected_type}")
         return payload
     except JWTError:
         raise
