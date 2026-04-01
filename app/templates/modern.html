@@ -243,15 +243,15 @@
         {% if resume.skills %}
         {% set ns = namespace(has_skills=false) %}
         {% for cat in resume.skills %}
-            {% if cat.items %}{% set ns.has_skills = true %}{% endif %}
+            {% if cat['items'] %}{% set ns.has_skills = true %}{% endif %}
         {% endfor %}
         {% if ns.has_skills %}
         <div class="section">
             <div class="section-title">Skills</div>
             {% for cat in resume.skills %}
-                {% if cat.items %}
+                {% if cat['items'] %}
                 <div class="skill-row">
-                    <span class="skill-category">{{ cat.name }}:</span> {{ cat.items | join(", ") }}
+                    <span class="skill-category">{{ cat.name }}:</span> {{ cat['items'] | join(", ") }}
                 </div>
                 {% endif %}
             {% endfor %}
