@@ -3,6 +3,7 @@ AI service: Gemini integration for resume parsing and tailoring.
 Uses google-genai SDK with retry logic and strict schema validation.
 """
 
+import html
 import json
 import re
 from pathlib import Path
@@ -57,6 +58,21 @@ def _sanitize_resume_data(data: Any) -> Any:
     return data
 
 
+def _post_process_strings(data: Any) -> Any:
+    """Decode HTML entities and normalize dashes in all string fields."""
+    if isinstance(data, dict):
+        return {k: _post_process_strings(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [_post_process_strings(item) for item in data]
+    elif isinstance(data, str):
+        # Decode HTML entities (e.g. &amp; -> &) left by bleach
+        text = html.unescape(data)
+        # Replace em dashes with en dashes for cleaner PDF rendering
+        text = text.replace("\u2014", "\u2013")  # — → –
+        return text
+    return data
+
+
 async def parse_resume(raw_text: str) -> ResumeData:
     """
     Parse raw resume text into structured ResumeData using Gemini AI.
@@ -79,6 +95,7 @@ async def parse_resume(raw_text: str) -> ResumeData:
 
             # Sanitize AI output
             sanitized = _sanitize_resume_data(parsed_dict)
+            sanitized = _post_process_strings(sanitized)
 
             # Validate against strict schema
             resume_data = ResumeData.model_validate(sanitized)
@@ -139,6 +156,10 @@ async def tailor_resume(base_data: dict, job_description: str, raw_text_length: 
             analytics = _sanitize_resume_data(analytics)
             resume_part = _sanitize_resume_data(resume_part)
 
+            # Decode HTML entities and normalize dashes
+            analytics = _post_process_strings(analytics)
+            resume_part = _post_process_strings(resume_part)
+
             # Validate against strict schema
             resume_data = ResumeData.model_validate(resume_part)
 
@@ -163,9 +184,9 @@ async def generate_summary(resume_data: dict, job_description: str) -> str:
     """Generate a short summary label for the dashboard card."""
     prompt = (
         "Write a SHORT dashboard label (max 8-10 words) for this tailored resume. "
-        "Format: '[Role] at [Company]' or '[Role] — [Industry]'. "
-        "Examples: 'DevOps Engineer at Netflix', 'HR Intern — Recruitment Focus', "
-        "'Full Stack Developer — Fintech'. No quotes, no markdown, no punctuation at end.\n\n"
+        "Format: '[Role] at [Company]' or '[Role] – [Industry]'. "
+        "Examples: 'DevOps Engineer at Netflix', 'HR Intern – Recruitment Focus', "
+        "'Full Stack Developer – Fintech'. No quotes, no markdown, no punctuation at end.\n\n"
         f"Job Description: {job_description[:300]}\n"
         f"Candidate: {resume_data.get('personalInfo', {}).get('fullName', 'Unknown')}"
     )
@@ -175,7 +196,7 @@ async def generate_summary(resume_data: dict, job_description: str) -> str:
             model=settings.GEMINI_MODEL,
             contents=prompt,
         )
-        return sanitize_input(response.text.strip())
+        return _post_process_strings(sanitize_input(response.text.strip()))
     except Exception as e:
         logger.warning("ai_summary_failed", error=str(e))
         return f"Tailored for: {job_description[:100]}..."
