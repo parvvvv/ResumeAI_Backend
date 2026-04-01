@@ -7,8 +7,9 @@ STRICT RULES:
 4. Preserve exact dates and technical terms. HOWEVER, if you notice that words are squished together without spaces (a common PDF kerning extraction error like "SoftwareEngineer" or "BigBrandBucketPvt"), you MUST intelligently add spaces to reconstruct the original readable text (e.g., "Software Engineer", "Big Brand Bucket Pvt").
 5. For bullet points (the "points" arrays), each distinct bullet or achievement should be a separate string in the array.
 6. For "techStack" arrays, extract specific technologies, programming languages, frameworks, and tools mentioned in context.
-7. Do NOT add fields that are not in the schema.
-8. Do NOT merge or split sections beyond what the schema requires.
+7. For the "skills" section, dynamically create appropriate category names based on the candidate's actual industry, role, and experience (e.g., if it's an HR resume, create categories like "Talent Acquisition", "HR Software", instead of using software engineering terms like "languages"). Do NOT limit categories to tech.
+8. Do NOT add fields that are not in the schema.
+9. Do NOT merge or split sections beyond what the schema requires.
 
 JSON SCHEMA:
 {{
@@ -31,14 +32,12 @@ JSON SCHEMA:
       "techStack": []
     }}
   ],
-  "skills": {{
-    "languages": [],
-    "frameworks": [],
-    "databases": [],
-    "tools": [],
-    "cloud": [],
-    "other": []
-  }},
+  "skills": [
+    {{
+      "name": "",
+      "items": []
+    }}
+  ],
   "projects": [
     {{
       "name": "",

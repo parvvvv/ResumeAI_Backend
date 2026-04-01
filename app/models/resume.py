@@ -27,13 +27,9 @@ class WorkExperience(BaseModel):
     techStack: List[str] = Field(default_factory=list)
 
 
-class Skills(BaseModel):
-    languages: List[str] = Field(default_factory=list)
-    frameworks: List[str] = Field(default_factory=list)
-    databases: List[str] = Field(default_factory=list)
-    tools: List[str] = Field(default_factory=list)
-    cloud: List[str] = Field(default_factory=list)
-    other: List[str] = Field(default_factory=list)
+class SkillCategory(BaseModel):
+    name: str = ""
+    items: List[str] = Field(default_factory=list)
 
 
 class Project(BaseModel):
@@ -52,13 +48,33 @@ class Education(BaseModel):
     score: str = ""
 
 
+from typing import Any, Union
+from pydantic import model_validator
+
 class ResumeData(BaseModel):
     """Top-level resume schema. This is the single source of truth."""
     personalInfo: PersonalInfo = Field(default_factory=PersonalInfo)
     workExperience: List[WorkExperience] = Field(default_factory=list)
-    skills: Skills = Field(default_factory=Skills)
+    skills: List[SkillCategory] = Field(default_factory=list)
     projects: List[Project] = Field(default_factory=list)
     education: List[Education] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def convert_legacy_skills(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            skills = data.get("skills")
+            if isinstance(skills, dict):
+                # Convert old dictionary of generic structures to list of SkillCategory
+                new_skills = []
+                for k, v in skills.items():
+                    if isinstance(v, list) and v: # Only migrate non-empty categories
+                        category_name = k.capitalize()
+                        if k == "cloud": category_name = "Cloud Platforms"
+                        elif k == "other": category_name = "Other"
+                        new_skills.append({"name": category_name, "items": v})
+                data["skills"] = new_skills
+        return data
 
 
 class AnalyticsData(BaseModel):

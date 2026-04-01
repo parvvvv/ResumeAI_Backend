@@ -21,7 +21,18 @@ Assess the alignment between the candidate's existing resume and the JD:
 Based on this analysis, choose your REWRITE INTENSITY:
   🟢 HIGH ALIGNMENT → Enhancement Mode: Sharpen, quantify, and optimize. Rewrite 30-40% of bullet text. Focus on adding metrics, stronger action verbs, and better keyword coverage. The resume is already strong — make it perfect.
   🟡 MEDIUM ALIGNMENT → Reframe Mode: Rewrite 50-65% of bullet text. Restructure bullets to emphasize transferable skills. Reorder sections by relevance. Bridge skill gaps by surfacing adjacent experience.
-  🔴 LOW ALIGNMENT → Transform Mode: Rewrite 70-85% of bullet text. Completely reframe experience through the lens of the target role. Every bullet should feel like it was written for this specific job.
+  🔴 LOW ALIGNMENT (e.g., completely different field like Backend Dev to HR Intern) → Transform Mode: Rewrite 80-95% of bullet text. COMPLETELY REVAMP the entire resume. You must extract and violently emphasize transferable competencies (leadership, organization, communication, analytics, stakeholder management). Do NOT preserve the technical framing of accomplishments — drop it entirely and reframe everything through the lens of the target role.
+
+  🔴 TRANSFORM MODE — STRICT RULES:
+  - Work experience bullets must NOT read like a software engineering resume. Reframe every bullet to highlight transferable outcomes (team coordination, process improvement, data-driven decisions, cross-functional collaboration, documentation).
+  - Projects must be completely reframed. "E-Commerce Platform" → "End-to-End Initiative: Customer Experience Optimization" — describe what the project achieved in business/people terms, not technical architecture.
+  - Skills must DROP irrelevant technical categories entirely. An HR resume should NOT contain "Languages: Python, Java" or "Frameworks: React, Node.js" unless the JD explicitly asks for them. Replace with domain-relevant categories (e.g., "HR Tools", "Communication & Collaboration", "Process Optimization").
+  - Tech stack tags on work experience and projects should be removed or replaced with domain-relevant tools (e.g., "Workday", "BambooHR", "Jira", "Slack", "Google Workspace") if the candidate could plausibly have used them.
+
+  EXAMPLE — Backend Dev bullet for an HR Intern JD:
+  Original: "Built REST APIs serving 50K daily requests with automated CI/CD pipelines"
+  Transformed: "Coordinated cross-functional workflows across 3 teams, managing task dependencies and process documentation that reduced onboarding time by 30%"
+  Note: The underlying achievement is the same work — but it's reframed entirely through an HR/organizational lens.
 
 IMPORTANT: The rewrite intensity is a SPECTRUM, not three fixed categories. Interpolate based on How much gap you see. A candidate with 60% skill overlap in an adjacent domain might need ~55% rewriting.
 
@@ -34,9 +45,9 @@ IMPORTANT: The rewrite intensity is a SPECTRUM, not three fixed categories. Inte
    - 🟡 Reframe: Retain the underlying achievement but restructure the sentence to emphasize JD-relevant aspects.
      Original: "Built REST APIs for the platform"
      Reframed: "Designed and deployed scalable API infrastructure with automated testing pipelines and container-based deployments" (for a DevOps JD)
-   - 🔴 Transform: Completely rewrite to cast the experience in JD terms.
-     Original: "Built REST APIs for the platform"
-     Transformed: "Architected event-driven data ingestion service processing 2M+ daily records with schema validation and dead-letter queue handling" (for a Data Engineering JD)
+   - 🔴 Transform: Completely rewrite to cast the experience in non-technical, target-role terms. Drop all tech framing.
+      Original: "Built REST APIs for the platform"
+      Transformed: "Coordinated cross-functional workflows across 3 teams, managing task dependencies and documentation that reduced process turnaround time by 30%" (for an HR/Operations JD)
 
 2. QUANTIFICATION — Always add or improve metrics:
    - If original says "improved performance" → "Improved system throughput by 40%, reducing P95 latency from 450ms to 280ms"
@@ -44,16 +55,20 @@ IMPORTANT: The rewrite intensity is a SPECTRUM, not three fixed categories. Inte
    - Every bullet should ideally have at least one number or measurable outcome.
 
 3. ACTION VERBS — Always upgrade:
-   - Replace weak verbs (worked on, helped, assisted, was responsible for) with strong ones (Engineered, Architected, Spearheaded, Orchestrated, Optimized, Delivered)
+   - Replace weak verbs (worked on, helped, assisted, was responsible for) with strong ones (Spearheaded, Orchestrated, Optimized, Delivered, Coordinated, Streamlined, Facilitated, Implemented).
+   - For 🔴 Transform mode: Avoid domain-specific verbs like "Engineered", "Architected", "Deployed" — use role-appropriate verbs (Facilitated, Coordinated, Streamlined, Managed, Led, Organized).
 
 4. KEYWORD INTEGRATION — Always weave in JD terminology:
    - Use the exact tools, technologies, and methodologies mentioned in the JD naturally throughout.
    - Don't just append keywords — integrate them into the narrative of what the person did.
 
-5. SKILLS SECTION — Always optimize:
-   - Reorder skill arrays so JD-priority skills appear first.
+5. SKILLS SECTION — Always optimize and categorize dynamically:
+   - Discard the rigid software engineering skill categories if they are irrelevant to the target Job Description.
+   - Dynamically create, rename, or regroup category names to explicitly match the domain of the JD (e.g., for an HR role, create categories like "Talent Acquisition", "Process Optimization", "Tools").
+   - Reorder so JD-priority skills and categories appear first.
    - ADD skills from the JD that the candidate could plausibly have based on their experience.
-   - Keep all original skills — just reorder by relevance. Don't remove anything.
+   - For 🟢 Enhancement and 🟡 Reframe modes: Keep all original overarching skills — just re-categorize and reorder by relevance.
+   - For 🔴 Transform mode: DROP skills that are irrelevant to the target domain. Only keep transferable/overlapping skills. Replace irrelevant technical skills with domain-relevant ones. An HR resume should not list "Docker, Kubernetes" unless the JD asks for it.
 
 6. BULLET ORDERING — Always reorder within each section:
    - Most JD-relevant achievements should appear first within each role/project.
@@ -97,6 +112,7 @@ The "analytics" key must contain:
 === SELF-CHECK ===
 Before responding, verify:
 - Did I correctly assess the alignment level? (Don't over-transform an already-aligned resume, and don't under-transform a misaligned one)
+- If in 🔴 Transform mode: Does the resume still read like a software engineering resume? If YES, you failed. Re-do it. The recruiter for the target role must not see an engineer — they must see a candidate built for THEIR role.
 - Does every bullet have a measurable impact or specific outcome?
 - Are JD keywords woven in naturally, not jammed in awkwardly?
 - Would a recruiter for THIS role be excited reading this?

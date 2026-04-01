@@ -239,19 +239,11 @@
         <!-- Skills -->
         {% if resume.skills %}
         <div class="section">
-            <div class="section-title">Technical Skills</div>
-            {% set all_skills = [
-                ("Languages", resume.skills.languages),
-                ("Frameworks", resume.skills.frameworks),
-                ("Databases", resume.skills.databases),
-                ("Tools", resume.skills.tools),
-                ("Cloud", resume.skills.cloud),
-                ("Other", resume.skills.other),
-            ] %}
-            {% for label, items in all_skills %}
-                {% if items %}
+            <div class="section-title">Skills</div>
+            {% for cat in resume.skills %}
+                {% if cat.items %}
                 <div class="skill-row">
-                    <span class="skill-category">{{ label }}: </span>{{ items | join(", ") }}
+                    <span class="skill-category">{{ cat.name }}: </span>{{ cat.items | join(", ") }}
                 </div>
                 {% endif %}
             {% endfor %}
