@@ -46,6 +46,52 @@ async def recommended_jobs(
     return result
 
 
+async def _tailor_from_job_id_flow(job_id: str, base_resume_id: str, user_id: str):
+    """
+    Background flow: fetch job description, then start tailoring.
+    """
+    db = get_database()
+    try:
+        # 1. Get job description (could be slow if cache miss)
+        job_desc = await get_job_description(job_id, db)
+        if not job_desc:
+            from app.services.notification_service import notification_service, Notification
+            await notification_service.notify(user_id, Notification(
+                event="tailor_failed",
+                message="We couldn't fetch the job details. Please try another job.",
+                data={"job_id": job_id},
+            ))
+            return
+
+        # 2. Get base resume
+        base_resume = await db.base_resumes.find_one(
+            {"_id": ObjectId(base_resume_id), "userId": user_id}
+        )
+        if not base_resume:
+            return
+
+        # 3. Sanitize and proceed with existing tailoring logic
+        from app.security import sanitize_input
+        job_desc = sanitize_input(job_desc)
+        raw_text_length = base_resume.get("rawTextLength", 0)
+
+        await _tailor_background(
+            base_resume["resumeData"],
+            job_desc,
+            raw_text_length,
+            base_resume_id,
+            user_id,
+        )
+    except Exception as e:
+        logger.error("tailor_from_id_flow_failed", error=str(e))
+        from app.services.notification_service import notification_service, Notification
+        await notification_service.notify(user_id, Notification(
+            event="tailor_failed",
+            message="Tailoring failed due to an internal error.",
+            data={"error": str(e)},
+        ))
+
+
 @router.post("/tailor", status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit(settings.RATE_LIMIT_AI)
 async def tailor_for_job(
@@ -56,44 +102,31 @@ async def tailor_for_job(
 ):
     """
     Tailor a resume for a specific job.
-    Fetches the job description from cache or JSearch API and starts tailoring.
+    Starts the entire flow in the background for immediate user response.
     """
     db = get_database()
 
-    # 1. Verify base resume exists
+    # Verify base resume exists before accepting
     try:
-        base_resume = await db.base_resumes.find_one(
-            {"_id": ObjectId(body.base_resume_id), "userId": user_id}
+        base_exists = await db.base_resumes.find_one(
+            {"_id": ObjectId(body.base_resume_id), "userId": user_id},
+            {"_id": 1}
         )
     except Exception:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid resume ID.")
 
-    if not base_resume:
+    if not base_exists:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Base resume not found.")
 
-    # 2. Get job description
-    job_desc = await get_job_description(body.job_id, db)
-    if not job_desc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job description not found. Please refresh job recommendations."
-        )
-
-    # 3. Sanitize and start background tailoring
-    from app.security import sanitize_input
-    job_desc = sanitize_input(job_desc)
-    raw_text_length = base_resume.get("rawTextLength", 0)
-
+    # Start entire flow in background
     background_tasks.add_task(
-        _tailor_background,
-        base_resume["resumeData"],
-        job_desc,
-        raw_text_length,
+        _tailor_from_job_id_flow,
+        body.job_id,
         body.base_resume_id,
         user_id,
     )
 
-    logger.info("job_tailor_started", user_id=user_id, job_id=body.job_id)
+    logger.info("job_tailor_accepted", user_id=user_id, job_id=body.job_id)
 
     return {
         "message": "Tailoring started. You'll be notified when ready.",
