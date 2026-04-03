@@ -160,7 +160,9 @@ async def delete_base_resume(
     resume_id: str,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete a base resume and all its associated generated resumes."""
+    """Delete a base resume and all its associated generated resumes (including PDFs)."""
+    from app.services.storage_service import delete_pdf
+
     db = get_database()
     try:
         result = await db.base_resumes.delete_one(
@@ -172,12 +174,24 @@ async def delete_base_resume(
     if result.deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found.")
 
-    # Also delete all generated resumes linked to this base
+    # Find all generated resumes to delete their PDFs
+    generated = await db.generated_resumes.find(
+        {"baseResumeId": resume_id, "userId": user_id},
+        {"pdfUrl": 1}
+    ).to_list(length=100)
+
+    # Delete PDFs from storage
+    for doc in generated:
+        pdf_url = doc.get("pdfUrl")
+        if pdf_url:
+            await delete_pdf(pdf_url)
+
+    # Delete all generated resumes linked to this base
     await db.generated_resumes.delete_many(
         {"baseResumeId": resume_id, "userId": user_id}
     )
 
-    logger.info("resume_deleted", user_id=user_id, resume_id=resume_id)
+    logger.info("resume_deleted", user_id=user_id, resume_id=resume_id, deleted_pdfs=len(generated))
     return {"message": "Resume and associated tailored resumes deleted."}
 
 

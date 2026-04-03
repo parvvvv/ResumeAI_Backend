@@ -30,6 +30,11 @@ async def connect_db() -> None:
     await db.generated_resumes.create_index("userId")
     await db.generated_resumes.create_index("baseResumeId")
 
+    # Jobs collection with TTL index (auto-delete after 24 hours)
+    await db.jobs.create_index("createdAt", expireAfterSeconds=86400)
+    await db.jobs.create_index("job_id", unique=True)
+    await db.jobs.create_index("userId")
+
 
 async def disconnect_db() -> None:
     """Close MongoDB connection."""

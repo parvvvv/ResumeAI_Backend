@@ -6,6 +6,8 @@ Supports fallback API key rotation and intelligent profile classification.
 
 import httpx
 import structlog
+from typing import Optional
+
 
 from app.config import settings
 
@@ -119,6 +121,60 @@ def build_search_query(profile: str, summaries: list[str]) -> str:
     return "developer jobs india"
 
 
+async def fetch_job_details(
+    job_id: str,
+    api_keys: list[str],
+) -> Optional[dict]:
+    """
+    Fetch full job details from JSearch API using the job details endpoint.
+    Returns the full job description and other details.
+    """
+    if not api_keys:
+        logger.warning("jsearch_no_api_keys", message="No JSearch API keys configured")
+        return None
+
+    url = f"https://{settings.JSEARCH_HOST}/job-details"
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        params = {"job_id": job_id, "country": "in"}
+
+        for i, key in enumerate(api_keys):
+            try:
+                headers = {
+                    "Content-Type": "application/json",
+                    "x-rapidapi-host": settings.JSEARCH_HOST,
+                    "x-rapidapi-key": key,
+                }
+
+                logger.info("jsearch_details_request", key_index=i, job_id=job_id)
+                response = await client.get(url, params=params, headers=headers)
+
+                if response.status_code in (429, 403):
+                    logger.warning("jsearch_key_exhausted", key_index=i, status=response.status_code)
+                    continue
+
+                response.raise_for_status()
+                data = response.json()
+                jobs = data.get("data", [])
+
+                if jobs:
+                    logger.info("jsearch_details_success", key_index=i, job_id=job_id)
+                    return jobs[0]  # Return first (and only) job
+
+                logger.warning("jsearch_details_empty", job_id=job_id)
+                return None
+
+            except httpx.HTTPStatusError as e:
+                logger.error("jsearch_details_http_error", key_index=i, error=str(e))
+                continue
+            except httpx.RequestError as e:
+                logger.error("jsearch_details_request_error", key_index=i, error=str(e))
+                continue
+
+    logger.error("jsearch_details_all_attempts_failed", job_id=job_id)
+    return None
+
+
 async def fetch_jobs(
     query: str,
     api_keys: list[str],
@@ -222,7 +278,10 @@ async def get_recommendations(user_id: str, db) -> dict:
     """
     Main orchestrator: reads user's generated resumes from DB,
     classifies profile, builds query, fetches and formats jobs.
+    Caches jobs in MongoDB for 24 hours.
     """
+    from datetime import datetime, timezone
+
     # 1. Fetch all generated resumes for the user
     generated = await db.generated_resumes.find(
         {"userId": user_id},
@@ -246,14 +305,67 @@ async def get_recommendations(user_id: str, db) -> dict:
     # 3. Classify profile
     profile = classify_user_profile(summaries)
 
-    # 4. Build search query
+    # 4. Check for cached jobs in MongoDB for this profile
+    cached_jobs = await db.jobs.find(
+        {"userId": user_id, "profile": profile},
+        {"_id": 0}
+    ).sort("createdAt", -1).to_list(length=50)
+
+    if cached_jobs:
+        logger.info(
+            "jobs_cache_hit",
+            user_id=user_id,
+            profile=profile,
+            cached_count=len(cached_jobs),
+        )
+        jobs = [_format_cached_job(j) for j in cached_jobs]
+        return {
+            "jobs": jobs,
+            "profile": profile,
+            "query_used": cached_jobs[0].get("query_used", ""),
+        }
+
+    # 5. Build search query
     query = build_search_query(profile, summaries)
 
-    # 5. Fetch jobs from JSearch API
+    # 6. Fetch jobs from JSearch API
     raw_jobs = await fetch_jobs(query, settings.JSEARCH_API_KEYS)
 
-    # 6. Format for frontend
-    jobs = [_format_job(j) for j in raw_jobs]
+    # 7. Format for frontend and save to MongoDB
+    jobs = []
+    job_docs = []
+    for j in raw_jobs:
+        formatted = _format_job(j)
+        jobs.append(formatted)
+        job_docs.append({
+            "job_id": j.get("job_id", ""),
+            "title": j.get("job_title", "Untitled"),
+            "company": j.get("employer_name", "Unknown Company"),
+            "company_logo": j.get("employer_logo"),
+            "location": _build_location(j),
+            "employment_type": j.get("job_employment_type", ""),
+            "posted_at": j.get("job_posted_at_datetime_utc", ""),
+            "posted_at_label": j.get("job_posted_at", ""),
+            "apply_link": j.get("job_apply_link", ""),
+            "is_remote": j.get("job_is_remote", False),
+            "description_snippet": (j.get("job_description", "")[:200] + "...") if j.get("job_description") else "",
+            "job_description": j.get("job_description", ""),  # Store full description
+            "salary_min": j.get("job_min_salary"),
+            "salary_max": j.get("job_max_salary"),
+            "salary_period": j.get("job_salary_period"),
+            "highlights": j.get("job_highlights", {}),
+            "userId": user_id,
+            "profile": profile,
+            "query_used": query,
+            "createdAt": datetime.now(timezone.utc),
+        })
+
+    # Bulk insert jobs (ignore duplicates)
+    if job_docs:
+        try:
+            await db.jobs.insert_many(job_docs, ordered=False)
+        except Exception as e:
+            logger.warning("jobs_insert_failed", error=str(e))
 
     logger.info(
         "job_recommendations_ready",
@@ -268,3 +380,51 @@ async def get_recommendations(user_id: str, db) -> dict:
         "profile": profile,
         "query_used": query,
     }
+
+
+def _format_cached_job(job: dict) -> dict:
+    """Format a cached job from MongoDB for frontend."""
+    return {
+        "job_id": job.get("job_id", ""),
+        "title": job.get("title", "Untitled"),
+        "company": job.get("company", "Unknown Company"),
+        "company_logo": job.get("company_logo"),
+        "location": job.get("location", "Remote"),
+        "employment_type": job.get("employment_type", ""),
+        "posted_at": job.get("posted_at", ""),
+        "posted_at_label": job.get("posted_at_label", ""),
+        "apply_link": job.get("apply_link", ""),
+        "is_remote": job.get("is_remote", False),
+        "description_snippet": job.get("description_snippet", ""),
+        "salary_min": job.get("salary_min"),
+        "salary_max": job.get("salary_max"),
+        "salary_period": job.get("salary_period"),
+        "highlights": job.get("highlights", {}),
+    }
+
+
+async def get_job_description(job_id: str, db) -> Optional[str]:
+    """
+    Get full job description for a specific job.
+    First checks MongoDB cache, then falls back to JSearch API.
+    """
+    # 1. Check MongoDB cache
+    cached = await db.jobs.find_one({"job_id": job_id})
+    if cached and cached.get("job_description"):
+        logger.info("job_desc_cache_hit", job_id=job_id)
+        return cached["job_description"]
+
+    # 2. Fetch from JSearch API
+    logger.info("job_desc_cache_miss", job_id=job_id)
+    job_data = await fetch_job_details(job_id, settings.JSEARCH_API_KEYS)
+
+    if job_data and job_data.get("job_description"):
+        # Update cache with full description
+        await db.jobs.update_one(
+            {"job_id": job_id},
+            {"$set": {"job_description": job_data.get("job_description", "")}},
+            upsert=True,
+        )
+        return job_data["job_description"]
+
+    return None
