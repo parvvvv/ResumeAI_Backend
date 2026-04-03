@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,7 +20,8 @@
             line-height: 1.35;
             color: #000;
             background: #fff;
-            max-height: 279.4mm; /* letterpaper height */
+            max-height: 279.4mm;
+            /* letterpaper height */
             overflow: hidden;
         }
 
@@ -61,7 +63,7 @@
             margin: 0 3px;
         }
 
-        .contact-info span + span::before {
+        .contact-info span+span::before {
             content: " | ";
         }
 
@@ -138,6 +140,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="resume">
         <!-- Header -->
@@ -147,10 +150,17 @@
             <h1>{{ resume.personalInfo.fullName }}</h1>
             {% endif %}
             <div class="contact-info">
-                {% if resume.personalInfo.email %}<span><a href="mailto:{{ resume.personalInfo.email }}">{{ resume.personalInfo.email }}</a></span>{% endif %}
+                {% if resume.personalInfo.email %}<span><a href="mailto:{{ resume.personalInfo.email }}">{{
+                        resume.personalInfo.email }}</a></span>{% endif %}
                 {% if resume.personalInfo.phone %}<span>{{ resume.personalInfo.phone }}</span>{% endif %}
-                {% if resume.personalInfo.linkedin %}<span><a href="https://{{ resume.personalInfo.linkedin | replace('https://', '') | replace('http://', '') }}">{{ resume.personalInfo.linkedin | replace('https://', '') | replace('http://', '') }}</a></span>{% endif %}
-                {% if resume.personalInfo.github %}<span><a href="https://{{ resume.personalInfo.github | replace('https://', '') | replace('http://', '') }}">{{ resume.personalInfo.github | replace('https://', '') | replace('http://', '') }}</a></span>{% endif %}
+                {% if resume.personalInfo.linkedin %}<span><a
+                        href="https://{{ resume.personalInfo.linkedin | replace('https://', '') | replace('http://', '') }}">{{
+                        resume.personalInfo.linkedin | replace('https://', '') | replace('http://', '') }}</a></span>{%
+                endif %}
+                {% if resume.personalInfo.github %}<span><a
+                        href="https://{{ resume.personalInfo.github | replace('https://', '') | replace('http://', '') }}">{{
+                        resume.personalInfo.github | replace('https://', '') | replace('http://', '') }}</a></span>{%
+                endif %}
             </div>
         </div>
         {% endif %}
@@ -163,10 +173,15 @@
             <div class="entry">
                 <div class="entry-header">
                     <div>
-                        <span class="entry-title">{{ exp.company }}</span>{% if exp.location %}, {{ exp.location }}{% endif %}
+                        <span class="entry-title">{{ exp.company }}</span>{% if exp.location %}, {{ exp.location }}{%
+                        endif %}
                     </div>
-                    {% if exp.startDate or exp.endDate %}
-                    <span class="entry-date">{{ exp.startDate }}{% if exp.endDate %} – {{ exp.endDate }}{% endif %}</span>
+                    {% if exp.startDate and exp.endDate %}
+                    <span class="entry-date">{{ exp.startDate }} – {{ exp.endDate }}</span>
+                    {% elif exp.startDate %}
+                    <span class="entry-date">{{ exp.startDate }}</span>
+                    {% elif exp.endDate %}
+                    <span class="entry-date">{{ exp.endDate }}</span>
                     {% endif %}
                 </div>
                 {% if exp.role %}
@@ -219,14 +234,19 @@
             <div class="entry">
                 <div class="entry-header">
                     <div>
-                        <span class="entry-title">{{ edu.institution }}</span>
+                        <span class="entry-title">{{ edu.institution }}</span>{% if edu.field %}, {{ edu.field }}{%
+                        endif %}
                     </div>
-                    {% if edu.startYear or edu.endYear %}
-                    <span class="entry-date">{{ edu.startYear }}{% if edu.endYear %} – {{ edu.endYear }}{% endif %}</span>
+                    {% if edu.startYear and edu.endYear %}
+                    <span class="entry-date">{{ edu.startYear }} – {{ edu.endYear }}</span>
+                    {% elif edu.startYear %}
+                    <span class="entry-date">{{ edu.startYear }}</span>
+                    {% elif edu.endYear %}
+                    <span class="entry-date">{{ edu.endYear }}</span>
                     {% endif %}
                 </div>
-                {% if edu.degree or edu.field %}
-                <div class="entry-subtitle">{{ edu.degree }}{% if edu.field %} in {{ edu.field }}{% endif %}</div>
+                {% if edu.degree %}
+                <div class="entry-subtitle">{{ edu.degree }}</div>
                 {% endif %}
                 {% if edu.score %}
                 <div class="edu-score">{{ edu.score }}</div>
@@ -241,14 +261,15 @@
         <div class="section">
             <div class="section-title">Skills</div>
             {% for cat in resume.skills %}
-                {% if cat['items'] %}
-                <div class="skill-row">
-                    <span class="skill-category">{{ cat.name }}: </span>{{ cat['items'] | join(", ") }}
-                </div>
-                {% endif %}
+            {% if cat['items'] %}
+            <div class="skill-row">
+                <span class="skill-category">{{ cat.name }}: </span>{{ cat['items'] | join(", ") }}
+            </div>
+            {% endif %}
             {% endfor %}
         </div>
         {% endif %}
     </div>
 </body>
+
 </html>

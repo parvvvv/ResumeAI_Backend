@@ -217,8 +217,12 @@
                         <span class="entry-location"> – {{ exp.location }}</span>
                         {% endif %}
                     </div>
-                    {% if exp.startDate or exp.endDate %}
-                    <span class="entry-date">{{ exp.startDate }}{% if exp.endDate %} – {{ exp.endDate }}{% endif %}</span>
+                    {% if exp.startDate and exp.endDate %}
+                    <span class="entry-date">{{ exp.startDate }} – {{ exp.endDate }}</span>
+                    {% elif exp.startDate %}
+                    <span class="entry-date">{{ exp.startDate }}</span>
+                    {% elif exp.endDate %}
+                    <span class="entry-date">{{ exp.endDate }}</span>
                     {% endif %}
                 </div>
                 {% if exp.description %}
@@ -295,13 +299,17 @@
                 <div class="edu-header">
                     <div>
                         <span class="edu-institution">{{ edu.institution }}</span>
-                        {% if edu.startYear or edu.endYear %}
-                        <span class="edu-date" style="float:right;">{{ edu.startYear }}{% if edu.endYear %} – {{ edu.endYear }}{% endif %}</span>
-                        {% endif %}
                         {% if edu.degree or edu.field %}
-                        <span class="edu-degree"> {{ edu.degree }}{% if edu.field %} in {{ edu.field }}{% endif %}</span>
+                        <span class="edu-degree"> – {{ edu.degree }}{% if edu.field %} in {{ edu.field }}{% endif %}</span>
                         {% endif %}
                     </div>
+                    {% if edu.startYear and edu.endYear %}
+                    <span class="edu-date">{{ edu.startYear }} – {{ edu.endYear }}</span>
+                    {% elif edu.startYear %}
+                    <span class="edu-date">{{ edu.startYear }}</span>
+                    {% elif edu.endYear %}
+                    <span class="edu-date">{{ edu.endYear }}</span>
+                    {% endif %}
                 </div>
                 {% if edu.score %}
                 <div class="edu-score">{{ edu.score }}</div>
