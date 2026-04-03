@@ -10,6 +10,8 @@ from fastapi.responses import StreamingResponse
 from jose import JWTError
 from app.services.auth_service import decode_jwt
 from app.services.notification_service import notification_service
+from app.middleware.rate_limit import limiter
+from app.config import settings
 import structlog
 
 logger = structlog.get_logger()
@@ -18,6 +20,7 @@ router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
 
 @router.get("/stream")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
 async def notification_stream(
     request: Request,
     token: str = Query(..., description="JWT token (EventSource can't send headers)"),

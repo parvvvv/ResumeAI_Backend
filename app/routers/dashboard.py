@@ -3,10 +3,12 @@ Dashboard router: list all generated resumes for a user.
 """
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, status
 from app.middleware.auth import get_current_user_id
 from app.database import get_database
 from app.services.storage_service import delete_pdf
+from app.middleware.rate_limit import limiter
+from app.config import settings
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 import structlog
 
 logger = structlog.get_logger()
@@ -15,7 +17,8 @@ router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 
 @router.get("")
-async def get_dashboard(user_id: str = Depends(get_current_user_id)):
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
+async def get_dashboard(request: Request, user_id: str = Depends(get_current_user_id)):
     """
     Get all generated resumes for the authenticated user.
     Returns metadata (summary, template, date, pdf URL) without full resume data.
@@ -35,7 +38,9 @@ async def get_dashboard(user_id: str = Depends(get_current_user_id)):
 
 
 @router.delete("/{resume_id}")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
 async def delete_generated_resume(
+    request: Request,
     resume_id: str,
     user_id: str = Depends(get_current_user_id),
 ):

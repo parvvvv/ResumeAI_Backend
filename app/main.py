@@ -13,7 +13,7 @@ import structlog
 from app.config import settings
 from app.database import connect_db, disconnect_db
 from app.security import SecurityHeadersMiddleware, RequestIDMiddleware
-from app.middleware.rate_limit import limiter, rate_limit_exceeded_handler
+from app.middleware.rate_limit import limiter, rate_limit_exceeded_handler, SlowAPIMiddleware
 from app.routers import auth, resume, pdf, dashboard, notifications, jobs
 
 
@@ -84,6 +84,9 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # Request ID tracing
 app.add_middleware(RequestIDMiddleware)
+
+# Rate limiting (internal middleware)
+app.add_middleware(SlowAPIMiddleware)
 
 # ---------------------------------------------------------------------------
 # Routers

@@ -87,7 +87,8 @@ async def login(request: Request, body: UserLogin):
 
 
 @router.post("/refresh", response_model=RefreshTokenResponse)
-async def refresh_token(body: RefreshTokenRequest):
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def refresh_token_endpoint(request: Request, body: RefreshTokenRequest):
     """Exchange a valid refresh token for a new access & refresh token pair."""
     try:
         payload = decode_jwt(body.refresh_token, expected_type="refresh")

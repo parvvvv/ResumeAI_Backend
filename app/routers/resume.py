@@ -91,7 +91,8 @@ async def upload_and_parse(
 
 
 @router.get("")
-async def get_base_resume(user_id: str = Depends(get_current_user_id)):
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
+async def get_base_resume(request: Request, user_id: str = Depends(get_current_user_id)):
     """Get the user's base resume(s)."""
     db = get_database()
     resumes = await db.base_resumes.find(
@@ -106,7 +107,9 @@ async def get_base_resume(user_id: str = Depends(get_current_user_id)):
 
 
 @router.get("/{resume_id}")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
 async def get_resume_by_id(
+    request: Request,
     resume_id: str,
     user_id: str = Depends(get_current_user_id),
 ):
@@ -128,7 +131,9 @@ async def get_resume_by_id(
 
 
 @router.put("/{resume_id}")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
 async def update_base_resume(
+    request: Request,
     resume_id: str,
     body: ResumeData,
     user_id: str = Depends(get_current_user_id),
@@ -156,7 +161,9 @@ async def update_base_resume(
 
 
 @router.delete("/{resume_id}")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
 async def delete_base_resume(
+    request: Request,
     resume_id: str,
     user_id: str = Depends(get_current_user_id),
 ):

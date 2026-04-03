@@ -113,7 +113,8 @@ async def generate_pdf_endpoint(
 
 
 @router.get("/pdf/{filename}")
-async def serve_pdf(filename: str):
+@limiter.limit(settings.RATE_LIMIT_PDF)
+async def serve_pdf(request: Request, filename: str):
     """Serve a generated PDF file (local storage fallback)."""
     # Sanitize filename to prevent directory traversal
     if "/" in filename or ".." in filename:
