@@ -16,7 +16,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
 
-@router.post("/", response_model=ChatResponse)
+@router.post("", response_model=ChatResponse)
 @limiter.limit(settings.RATE_LIMIT_AI)
 async def chat_endpoint(request: Request, body: ChatRequest):
     """
