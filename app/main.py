@@ -14,8 +14,7 @@ from app.config import settings
 from app.database import connect_db, disconnect_db
 from app.security import SecurityHeadersMiddleware, RequestIDMiddleware
 from app.middleware.rate_limit import limiter, rate_limit_exceeded_handler, SlowAPIMiddleware
-from app.routers import auth, resume, pdf, dashboard, notifications, jobs
-
+from app.routers import auth, resume, pdf, dashboard, notifications, jobs, chat
 
 # ---------------------------------------------------------------------------
 # Structured logging setup
@@ -97,6 +96,7 @@ app.include_router(pdf.router)
 app.include_router(dashboard.router)
 app.include_router(notifications.router)
 app.include_router(jobs.router)
+app.include_router(chat.router)
 
 
 # ---------------------------------------------------------------------------

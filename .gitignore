@@ -2,7 +2,7 @@
 venv/
 .venv/
 env/
-
+rag_pipeline
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

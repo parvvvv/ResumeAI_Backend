@@ -16,3 +16,8 @@ bleach
 structlog
 supabase
 httpx
+
+# RAG / Langchain dependencies
+langchain>=0.3.1
+langchain-google-genai==2.0.0
+langchain-community>=0.3.1
