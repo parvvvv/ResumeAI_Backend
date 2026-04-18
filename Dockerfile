@@ -3,35 +3,6 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies required by Playwright Chromium + WeasyPrint
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Playwright Chromium dependencies
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libdbus-1-3 \
-    libxkbcommon0 \
-    libatspi2.0-0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libasound2 \
-    libx11-xcb1 \
-    # WeasyPrint dependencies
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libgdk-pixbuf2.0-0 \
-    libffi-dev \
-    libcairo2 \
-    && rm -rf /var/lib/apt/lists/*
-
 # Copy requirements first for Docker cache efficiency
 COPY requirements.txt .
 
@@ -39,8 +10,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright Chromium browser binary
-RUN playwright install chromium
+# Let Playwright install Chromium + all required OS-level dependencies automatically
+RUN playwright install --with-deps chromium
 
 # Copy application code
 COPY . .
