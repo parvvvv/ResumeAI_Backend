@@ -9,7 +9,8 @@ from app.middleware.rate_limit import limiter
 from app.database import get_database
 from app.config import settings
 from app.services.job_service import get_recommendations, get_job_description
-from app.routers.resume import _tailor_background
+from app.routers.resume import _tailor_stream, _sse
+from fastapi.responses import StreamingResponse
 from bson import ObjectId
 import structlog
 
@@ -46,21 +47,25 @@ async def recommended_jobs(
     return result
 
 
-async def _tailor_from_job_id_flow(job_id: str, base_resume_id: str, user_id: str):
+async def _tailor_from_job_id_stream(job_id: str, base_resume_id: str, user_id: str):
     """
-    Background flow: fetch job description, then start tailoring.
+    Streaming flow: fetch job description, then yield progress from AI tailor.
     """
     db = get_database()
     try:
-        # 1. Get job description (could be slow if cache miss)
+        # yield some initial progress
+        yield _sse("tailor_progress", {
+            "message": "Fetching job description...",
+            "data": {"percent": 2, "stage": 0, "baseResumeId": base_resume_id},
+        })
+
+        # 1. Get job description
         job_desc = await get_job_description(job_id, db)
         if not job_desc:
-            from app.services.notification_service import notification_service, Notification
-            await notification_service.notify(user_id, Notification(
-                event="tailor_failed",
-                message="We couldn't fetch the job details. Please try another job.",
-                data={"job_id": job_id},
-            ))
+            yield _sse("tailor_failed", {
+                "message": "We couldn't fetch the job details. Please try another job.",
+                "data": {"job_id": job_id, "baseResumeId": base_resume_id},
+            })
             return
 
         # 2. Get base resume
@@ -68,6 +73,10 @@ async def _tailor_from_job_id_flow(job_id: str, base_resume_id: str, user_id: st
             {"_id": ObjectId(base_resume_id), "userId": user_id}
         )
         if not base_resume:
+            yield _sse("tailor_failed", {
+                "message": "Base resume not found.",
+                "data": {"baseResumeId": base_resume_id},
+            })
             return
 
         # 3. Sanitize and proceed with existing tailoring logic
@@ -75,34 +84,34 @@ async def _tailor_from_job_id_flow(job_id: str, base_resume_id: str, user_id: st
         job_desc = sanitize_input(job_desc)
         raw_text_length = base_resume.get("rawTextLength", 0)
 
-        await _tailor_background(
+        # Delegate to _tailor_stream from resume router
+        async for chunk in _tailor_stream(
             base_resume["resumeData"],
             job_desc,
             raw_text_length,
             base_resume_id,
             user_id,
-        )
+        ):
+            yield chunk
+
     except Exception as e:
-        logger.error("tailor_from_id_flow_failed", error=str(e))
-        from app.services.notification_service import notification_service, Notification
-        await notification_service.notify(user_id, Notification(
-            event="tailor_failed",
-            message="Tailoring failed due to an internal error.",
-            data={"error": str(e)},
-        ))
+        logger.error("tailor_from_id_stream_failed", error=str(e))
+        yield _sse("tailor_failed", {
+            "message": "Tailoring failed due to an internal error.",
+            "data": {"error": str(e), "baseResumeId": base_resume_id},
+        })
 
 
-@router.post("/tailor", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/tailor")
 @limiter.limit(settings.RATE_LIMIT_AI)
 async def tailor_for_job(
     request: Request,
     body: TailorForJobRequest,
-    background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user_id),
 ):
     """
     Tailor a resume for a specific job.
-    Starts the entire flow in the background for immediate user response.
+    Streams progress as SSE.
     """
     db = get_database()
 
@@ -118,18 +127,13 @@ async def tailor_for_job(
     if not base_exists:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Base resume not found.")
 
-    # Start entire flow in background
-    background_tasks.add_task(
-        _tailor_from_job_id_flow,
-        body.job_id,
-        body.base_resume_id,
-        user_id,
+    logger.info("job_tailor_started", user_id=user_id, job_id=body.job_id)
+
+    return StreamingResponse(
+        _tailor_from_job_id_stream(body.job_id, body.base_resume_id, user_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
-
-    logger.info("job_tailor_accepted", user_id=user_id, job_id=body.job_id)
-
-    return {
-        "message": "Tailoring started. You'll be notified when ready.",
-        "status": "processing",
-        "job_id": body.job_id,
-    }

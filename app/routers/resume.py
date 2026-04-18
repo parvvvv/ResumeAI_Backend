@@ -2,14 +2,16 @@
 Resume router: upload, parse, CRUD, and tailoring.
 """
 
+import json
 import pdfplumber
 import io
 from datetime import datetime, timezone
 from bson import ObjectId
-from fastapi import APIRouter, HTTPException, status, UploadFile, File, Depends, Request, BackgroundTasks
+from fastapi import APIRouter, HTTPException, status, UploadFile, File, Depends, Request
+from fastapi.responses import StreamingResponse
 from app.models.resume import ResumeData
 from app.models.generated import GenerateResumeRequest
-from app.services.ai_service import parse_resume, analyze_alignment, tailor_content, generate_summary
+from app.services.ai_service import parse_resume, analyze_alignment, optimize_skills, rewrite_experience, final_polish, generate_summary
 from app.services.notification_service import notification_service, Notification
 from app.middleware.auth import get_current_user_id
 from app.middleware.rate_limit import limiter
@@ -229,15 +231,49 @@ async def delete_base_resume(
     return {"message": "Resume and associated tailored resumes deleted."}
 
 
-@router.post("/tailor", status_code=status.HTTP_202_ACCEPTED)
+@router.delete("/generated/{resume_id}")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
+async def delete_generated_resume(
+    request: Request,
+    resume_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Delete a generated (tailored) resume and its PDF from storage."""
+    from app.services.storage_service import delete_pdf
+    db = get_database()
+    try:
+        # Fetch the doc first to get pdfUrl before deleting
+        doc = await db.generated_resumes.find_one(
+            {"_id": ObjectId(resume_id), "userId": user_id}
+        )
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid resume ID.")
+
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found.")
+
+    # Delete PDF from storage (Supabase or local) if it exists
+    pdf_url = doc.get("pdfUrl")
+    if pdf_url:
+        await delete_pdf(pdf_url)
+
+    # Delete the DB record
+    await db.generated_resumes.delete_one(
+        {"_id": ObjectId(resume_id), "userId": user_id}
+    )
+
+    logger.info("generated_resume_deleted", user_id=user_id, resume_id=resume_id)
+    return {"message": "Tailored resume deleted."}
+
+
+@router.post("/tailor")
 @limiter.limit(settings.RATE_LIMIT_AI)
 async def tailor(
     request: Request,
     body: GenerateResumeRequest,
-    background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Kick off resume tailoring as a background task. Returns immediately."""
+    """Stream resume tailoring progress as SSE events."""
     db = get_database()
 
     # Get base resume
@@ -255,67 +291,116 @@ async def tailor(
     job_desc = sanitize_input(body.jobDescription)
     raw_text_length = base_resume.get("rawTextLength", 0)
 
-    # Schedule background tailoring
-    background_tasks.add_task(
-        _tailor_background,
-        base_resume["resumeData"],
-        job_desc,
-        raw_text_length,
-        body.baseResumeId,
-        user_id,
+    return StreamingResponse(
+        _tailor_stream(
+            base_resume["resumeData"],
+            job_desc,
+            raw_text_length,
+            body.baseResumeId,
+            user_id,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
-    return {"message": "Tailoring started. You'll be notified when ready.", "status": "processing"}
+
+def _sse(event: str, data: dict) -> str:
+    """Format a single SSE event string."""
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-async def _tailor_background(
+async def _tailor_stream(
     resume_data: dict,
     job_desc: str,
     raw_text_length: int,
     base_resume_id: str,
     user_id: str,
 ):
-    """Background task: two-step AI tailor with SSE progress events between each stage."""
+    """Async generator: yields SSE events as each AI step completes."""
     try:
-        # ── Stage 1: Gap Analysis (fast call) ──────────────────────────
-        await notification_service.notify(user_id, Notification(
-            event="tailor_progress",
-            message="🔍 Analyzing job description and extracting focus keywords...",
-            data={"percent": 10, "baseResumeId": base_resume_id},
-        ))
+        total_chars = 0
+        EXPECTED_CHARS = 7000
 
-        alignment = await analyze_alignment(resume_data, job_desc)
+        async def proxy_stream(gen, stage_idx, base_pct, max_pct, result_container):
+            nonlocal total_chars
+            async for evt, data in gen:
+                if evt == "chunk":
+                    total_chars += data["chars"]
+                    pct = min(max_pct, int((total_chars / EXPECTED_CHARS) * 100))
+                    pct = max(base_pct, pct)
+                    yield _sse("tailor_progress", {
+                        "message": "Generating...",
+                        "data": {"percent": pct, "stage": stage_idx, "baseResumeId": base_resume_id}
+                    })
+                elif evt == "result":
+                    result_container.append(data)
 
-        # ── Stage 2: Broadcast early ATS insight ───────────────────────
-        await notification_service.notify(user_id, Notification(
-            event="tailor_progress",
-            message="📊 Gap analysis complete. Starting resume optimization...",
-            data={
-                "percent": 30,
+        # ── Stage 1: Gap Analysis ──────────────────────────────────────
+        yield _sse("tailor_progress", {
+            "message": "Analyzing job description and identifying skill gaps...",
+            "data": {"percent": 5, "stage": 1, "baseResumeId": base_resume_id},
+        })
+
+        align_res = []
+        async for chunk in proxy_stream(analyze_alignment(resume_data, job_desc), 1, 5, 25, align_res):
+            yield chunk
+        alignment = align_res[0]
+
+        yield _sse("tailor_progress", {
+            "message": "Gap analysis complete — optimizing skills section...",
+            "data": {
+                "percent": 25, "stage": 2,
                 "baseResumeId": base_resume_id,
                 "earlyAtsScore": alignment.get("atsScore", 0),
                 "matchedKeywords": alignment.get("matchedKeywords", []),
                 "missingKeywords": alignment.get("missingKeywords", []),
             },
-        ))
+        })
 
-        # ── Stage 3: Full rewrite (heavy call) ─────────────────────────
-        await notification_service.notify(user_id, Notification(
-            event="tailor_progress",
-            message="✍️ Reframing experience bullets and projects (AI at work)...",
-            data={"percent": 55, "baseResumeId": base_resume_id},
-        ))
+        # ── Stage 2: Skills Optimization ───────────────────────────────
+        skills_res = []
+        async for chunk in proxy_stream(optimize_skills(resume_data, job_desc, alignment), 2, 25, 45, skills_res):
+            yield chunk
+        optimized_skills = skills_res[0]
 
-        tailored_data, analytics = await tailor_content(
-            resume_data, job_desc, alignment, raw_text_length
-        )
+        yield _sse("tailor_progress", {
+            "message": "Skills optimized — rewriting experience & projects...",
+            "data": {"percent": 45, "stage": 3, "baseResumeId": base_resume_id},
+        })
 
-        # ── Stage 4: Summary generation ────────────────────────────────
-        await notification_service.notify(user_id, Notification(
-            event="tailor_progress",
-            message="✨ Finalizing tailored resume and generating dashboard summary...",
-            data={"percent": 90, "baseResumeId": base_resume_id},
-        ))
+        # ── Stage 3: Experience & Projects Rewrite ─────────────────────
+        exp_res = []
+        async for chunk in proxy_stream(rewrite_experience(resume_data, job_desc, alignment, optimized_skills), 3, 45, 75, exp_res):
+            yield chunk
+        experience = exp_res[0]
+
+        yield _sse("tailor_progress", {
+            "message": "Final polish pass and scoring...",
+            "data": {"percent": 75, "stage": 4, "baseResumeId": base_resume_id},
+        })
+
+        # ── Stage 4: Final Polish + Analytics ──────────────────────────
+        assembled = {
+            "personalInfo": resume_data.get("personalInfo", {}),
+            "workExperience": experience.get("workExperience", []),
+            "skills": optimized_skills,
+            "projects": experience.get("projects", []),
+            "education": resume_data.get("education", []),
+        }
+
+        polish_res = []
+        async for chunk in proxy_stream(final_polish(resume_data, assembled, job_desc, alignment, raw_text_length), 4, 75, 95, polish_res):
+            yield chunk
+        tailored_data, analytics = polish_res[0]
+
+        # ── Summary generation ─────────────────────────────────────────
+        yield _sse("tailor_progress", {
+            "message": "Generating dashboard summary...",
+            "data": {"percent": 95, "stage": 5, "baseResumeId": base_resume_id},
+        })
 
         summary = await generate_summary(tailored_data.model_dump(), job_desc)
 
@@ -334,24 +419,22 @@ async def _tailor_background(
         }
         result = await db.generated_resumes.insert_one(gen_doc)
 
-        logger.info("resume_tailored_bg", user_id=user_id, generated_id=str(result.inserted_id))
+        logger.info("resume_tailored", user_id=user_id, generated_id=str(result.inserted_id))
 
-        await notification_service.notify(user_id, Notification(
-            event="tailor_complete",
-            message="Resume tailored! View it on your dashboard.",
-            data={
+        yield _sse("tailor_complete", {
+            "message": "Resume tailored! View it on your dashboard.",
+            "data": {
                 "resumeId": str(result.inserted_id),
                 "baseResumeId": base_resume_id,
                 "analytics": analytics,
             },
-        ))
+        })
 
     except Exception as e:
-        logger.error("tailor_background_failed", error=str(e))
-        await notification_service.notify(user_id, Notification(
-            event="tailor_failed",
-            message="Tailoring failed. Please try again.",
-            data={"error": str(e), "baseResumeId": base_resume_id},
-        ))
+        logger.error("tailor_stream_failed", error=str(e))
+        yield _sse("tailor_failed", {
+            "message": "Tailoring failed. Please try again.",
+            "data": {"error": str(e), "baseResumeId": base_resume_id},
+        })
 
 
