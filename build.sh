@@ -8,5 +8,5 @@ python -m pip install --upgrade pip
 # Install python dependencies
 pip install -r requirements.txt
 
-# Install Playwright Chromium
-playwright install chromium
+# Install Playwright Chromium + OS-level dependencies (libnss3, libatk, etc.)
+playwright install --with-deps chromium
