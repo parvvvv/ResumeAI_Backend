@@ -45,6 +45,9 @@ async def lifespan(app: FastAPI):
     await connect_db()
     logger.info("app_started", database=settings.MONGO_DB_NAME)
     yield
+    # Shutdown: close shared Playwright browser
+    from app.services.pdf_service import shutdown_browser
+    await shutdown_browser()
     await disconnect_db()
     logger.info("app_stopped")
 

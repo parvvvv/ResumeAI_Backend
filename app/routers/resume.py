@@ -9,7 +9,7 @@ from bson import ObjectId
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Depends, Request, BackgroundTasks
 from app.models.resume import ResumeData
 from app.models.generated import GenerateResumeRequest
-from app.services.ai_service import parse_resume, tailor_resume, generate_summary
+from app.services.ai_service import parse_resume, analyze_alignment, tailor_content, generate_summary
 from app.services.notification_service import notification_service, Notification
 from app.middleware.auth import get_current_user_id
 from app.middleware.rate_limit import limiter
@@ -37,6 +37,13 @@ async def upload_and_parse(
     # Validate file
     content = await validate_pdf_upload(file)
 
+    # Stage 1 – text extraction
+    await notification_service.notify(user_id, Notification(
+        event="parse_progress",
+        message="Extracting text from your PDF...",
+        data={"percent": 15},
+    ))
+
     # Extract text from PDF
     try:
         with pdfplumber.open(io.BytesIO(content)) as pdf:
@@ -59,6 +66,13 @@ async def upload_and_parse(
             detail="No text found in PDF. Scanned/image-based PDFs are not supported.",
         )
 
+    # Stage 2 – AI parsing
+    await notification_service.notify(user_id, Notification(
+        event="parse_progress",
+        message="AI is identifying and mapping resume sections...",
+        data={"percent": 45},
+    ))
+
     # Parse with AI
     try:
         resume_data = await parse_resume(raw_text)
@@ -68,6 +82,13 @@ async def upload_and_parse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="AI failed to parse the resume. Please try again.",
         )
+
+    # Stage 3 – persist
+    await notification_service.notify(user_id, Notification(
+        event="parse_progress",
+        message="Finalizing structured data and saving your resume...",
+        data={"percent": 85},
+    ))
 
     # Store as base resume
     db = get_database()
@@ -82,6 +103,12 @@ async def upload_and_parse(
     result = await db.base_resumes.insert_one(doc)
 
     logger.info("resume_uploaded", user_id=user_id, resume_id=str(result.inserted_id))
+
+    await notification_service.notify(user_id, Notification(
+        event="parse_progress",
+        message="Resume parsed successfully!",
+        data={"percent": 100},
+    ))
 
     return {
         "id": str(result.inserted_id),
@@ -248,11 +275,51 @@ async def _tailor_background(
     base_resume_id: str,
     user_id: str,
 ):
-    """Background task: tailor resume with AI, store result + analytics, notify user."""
+    """Background task: two-step AI tailor with SSE progress events between each stage."""
     try:
-        tailored_data, analytics = await tailor_resume(resume_data, job_desc, raw_text_length)
+        # ── Stage 1: Gap Analysis (fast call) ──────────────────────────
+        await notification_service.notify(user_id, Notification(
+            event="tailor_progress",
+            message="🔍 Analyzing job description and extracting focus keywords...",
+            data={"percent": 10, "baseResumeId": base_resume_id},
+        ))
+
+        alignment = await analyze_alignment(resume_data, job_desc)
+
+        # ── Stage 2: Broadcast early ATS insight ───────────────────────
+        await notification_service.notify(user_id, Notification(
+            event="tailor_progress",
+            message="📊 Gap analysis complete. Starting resume optimization...",
+            data={
+                "percent": 30,
+                "baseResumeId": base_resume_id,
+                "earlyAtsScore": alignment.get("atsScore", 0),
+                "matchedKeywords": alignment.get("matchedKeywords", []),
+                "missingKeywords": alignment.get("missingKeywords", []),
+            },
+        ))
+
+        # ── Stage 3: Full rewrite (heavy call) ─────────────────────────
+        await notification_service.notify(user_id, Notification(
+            event="tailor_progress",
+            message="✍️ Reframing experience bullets and projects (AI at work)...",
+            data={"percent": 55, "baseResumeId": base_resume_id},
+        ))
+
+        tailored_data, analytics = await tailor_content(
+            resume_data, job_desc, alignment, raw_text_length
+        )
+
+        # ── Stage 4: Summary generation ────────────────────────────────
+        await notification_service.notify(user_id, Notification(
+            event="tailor_progress",
+            message="✨ Finalizing tailored resume and generating dashboard summary...",
+            data={"percent": 90, "baseResumeId": base_resume_id},
+        ))
+
         summary = await generate_summary(tailored_data.model_dump(), job_desc)
 
+        # ── Persist ────────────────────────────────────────────────────
         db = get_database()
         gen_doc = {
             "userId": user_id,
@@ -274,6 +341,7 @@ async def _tailor_background(
             message="Resume tailored! View it on your dashboard.",
             data={
                 "resumeId": str(result.inserted_id),
+                "baseResumeId": base_resume_id,
                 "analytics": analytics,
             },
         ))
@@ -283,7 +351,7 @@ async def _tailor_background(
         await notification_service.notify(user_id, Notification(
             event="tailor_failed",
             message="Tailoring failed. Please try again.",
-            data={"error": str(e)},
+            data={"error": str(e), "baseResumeId": base_resume_id},
         ))
 
 

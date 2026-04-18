@@ -9,6 +9,7 @@ python-multipart
 google-genai
 pdfplumber
 weasyprint
+playwright
 jinja2
 pydantic[email]
 slowapi
