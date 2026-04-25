@@ -17,6 +17,8 @@ bleach
 structlog
 supabase
 httpx
+pytest
+pytest-asyncio
 
 # RAG / Langchain dependencies
 langchain>=0.3.1

@@ -13,6 +13,7 @@ from app.models.resume import ResumeData
 from app.models.generated import GenerateResumeRequest
 from app.services.ai_service import parse_resume, analyze_alignment, optimize_skills, rewrite_experience, final_polish, generate_summary
 from app.services.notification_service import notification_service, Notification
+from app.runtime import get_runtime, run_blocking
 from app.middleware.auth import get_current_user_id
 from app.middleware.rate_limit import limiter
 from app.security import validate_pdf_upload, sanitize_input
@@ -23,6 +24,17 @@ import structlog
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/resume", tags=["Resume"])
+
+
+def _extract_pdf_text(content: bytes) -> str:
+    """Extract text from a PDF file."""
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        pages_text = []
+        for page in pdf.pages:
+            text = page.extract_text(x_tolerance=1.5, y_tolerance=3)
+            if text:
+                pages_text.append(text)
+        return "\n\n".join(pages_text)
 
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
@@ -48,13 +60,7 @@ async def upload_and_parse(
 
     # Extract text from PDF
     try:
-        with pdfplumber.open(io.BytesIO(content)) as pdf:
-            pages_text = []
-            for page in pdf.pages:
-                text = page.extract_text(x_tolerance=1.5, y_tolerance=3)
-                if text:
-                    pages_text.append(text)
-            raw_text = "\n\n".join(pages_text)
+        raw_text = await run_blocking(_extract_pdf_text, content)
     except Exception as e:
         logger.error("pdf_extraction_failed", error=str(e))
         raise HTTPException(
@@ -76,8 +82,10 @@ async def upload_and_parse(
     ))
 
     # Parse with AI
+    runtime = get_runtime()
     try:
-        resume_data = await parse_resume(raw_text)
+        async with runtime.ai_semaphore:
+            resume_data = await parse_resume(raw_text)
     except ValueError as e:
         logger.error("ai_parse_failed", error=str(e))
         raise HTTPException(
@@ -99,8 +107,8 @@ async def upload_and_parse(
         "resumeData": resume_data.model_dump(),
         "rawText": raw_text[:10000],  # Store truncated raw text for reference
         "rawTextLength": len(raw_text.strip()),
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "createdAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
     }
     result = await db.base_resumes.insert_one(doc)
 
@@ -175,7 +183,7 @@ async def update_base_resume(
             {
                 "$set": {
                     "resumeData": body.model_dump(),
-                    "updatedAt": datetime.now(timezone.utc).isoformat(),
+                    "updatedAt": datetime.now(timezone.utc),
                 }
             },
         )
@@ -323,6 +331,7 @@ async def _tailor_stream(
     try:
         total_chars = 0
         EXPECTED_CHARS = 7000
+        runtime = get_runtime()
 
         async def proxy_stream(gen, stage_idx, base_pct, max_pct, result_container):
             nonlocal total_chars
@@ -344,65 +353,66 @@ async def _tailor_stream(
             "data": {"percent": 5, "stage": 1, "baseResumeId": base_resume_id},
         })
 
-        align_res = []
-        async for chunk in proxy_stream(analyze_alignment(resume_data, job_desc), 1, 5, 25, align_res):
-            yield chunk
-        alignment = align_res[0]
+        async with runtime.ai_semaphore:
+            align_res = []
+            async for chunk in proxy_stream(analyze_alignment(resume_data, job_desc), 1, 5, 25, align_res):
+                yield chunk
+            alignment = align_res[0]
 
-        yield _sse("tailor_progress", {
-            "message": "Gap analysis complete — optimizing skills section...",
-            "data": {
-                "percent": 25, "stage": 2,
-                "baseResumeId": base_resume_id,
-                "earlyAtsScore": alignment.get("atsScore", 0),
-                "matchedKeywords": alignment.get("matchedKeywords", []),
-                "missingKeywords": alignment.get("missingKeywords", []),
-            },
-        })
+            yield _sse("tailor_progress", {
+                "message": "Gap analysis complete — optimizing skills section...",
+                "data": {
+                    "percent": 25, "stage": 2,
+                    "baseResumeId": base_resume_id,
+                    "earlyAtsScore": alignment.get("atsScore", 0),
+                    "matchedKeywords": alignment.get("matchedKeywords", []),
+                    "missingKeywords": alignment.get("missingKeywords", []),
+                },
+            })
 
-        # ── Stage 2: Skills Optimization ───────────────────────────────
-        skills_res = []
-        async for chunk in proxy_stream(optimize_skills(resume_data, job_desc, alignment), 2, 25, 45, skills_res):
-            yield chunk
-        optimized_skills = skills_res[0]
+            # ── Stage 2: Skills Optimization ───────────────────────────────
+            skills_res = []
+            async for chunk in proxy_stream(optimize_skills(resume_data, job_desc, alignment), 2, 25, 45, skills_res):
+                yield chunk
+            optimized_skills = skills_res[0]
 
-        yield _sse("tailor_progress", {
-            "message": "Skills optimized — rewriting experience & projects...",
-            "data": {"percent": 45, "stage": 3, "baseResumeId": base_resume_id},
-        })
+            yield _sse("tailor_progress", {
+                "message": "Skills optimized — rewriting experience & projects...",
+                "data": {"percent": 45, "stage": 3, "baseResumeId": base_resume_id},
+            })
 
-        # ── Stage 3: Experience & Projects Rewrite ─────────────────────
-        exp_res = []
-        async for chunk in proxy_stream(rewrite_experience(resume_data, job_desc, alignment, optimized_skills), 3, 45, 75, exp_res):
-            yield chunk
-        experience = exp_res[0]
+            # ── Stage 3: Experience & Projects Rewrite ─────────────────────
+            exp_res = []
+            async for chunk in proxy_stream(rewrite_experience(resume_data, job_desc, alignment, optimized_skills), 3, 45, 75, exp_res):
+                yield chunk
+            experience = exp_res[0]
 
-        yield _sse("tailor_progress", {
-            "message": "Final polish pass and scoring...",
-            "data": {"percent": 75, "stage": 4, "baseResumeId": base_resume_id},
-        })
+            yield _sse("tailor_progress", {
+                "message": "Final polish pass and scoring...",
+                "data": {"percent": 75, "stage": 4, "baseResumeId": base_resume_id},
+            })
 
-        # ── Stage 4: Final Polish + Analytics ──────────────────────────
-        assembled = {
-            "personalInfo": resume_data.get("personalInfo", {}),
-            "workExperience": experience.get("workExperience", []),
-            "skills": optimized_skills,
-            "projects": experience.get("projects", []),
-            "education": resume_data.get("education", []),
-        }
+            # ── Stage 4: Final Polish + Analytics ──────────────────────────
+            assembled = {
+                "personalInfo": resume_data.get("personalInfo", {}),
+                "workExperience": experience.get("workExperience", []),
+                "skills": optimized_skills,
+                "projects": experience.get("projects", []),
+                "education": resume_data.get("education", []),
+            }
 
-        polish_res = []
-        async for chunk in proxy_stream(final_polish(resume_data, assembled, job_desc, alignment, raw_text_length), 4, 75, 95, polish_res):
-            yield chunk
-        tailored_data, analytics = polish_res[0]
+            polish_res = []
+            async for chunk in proxy_stream(final_polish(resume_data, assembled, job_desc, alignment, raw_text_length), 4, 75, 95, polish_res):
+                yield chunk
+            tailored_data, analytics = polish_res[0]
 
-        # ── Summary generation ─────────────────────────────────────────
-        yield _sse("tailor_progress", {
-            "message": "Generating dashboard summary...",
-            "data": {"percent": 95, "stage": 5, "baseResumeId": base_resume_id},
-        })
+            # ── Summary generation ─────────────────────────────────────────
+            yield _sse("tailor_progress", {
+                "message": "Generating dashboard summary...",
+                "data": {"percent": 95, "stage": 5, "baseResumeId": base_resume_id},
+            })
 
-        summary = await generate_summary(tailored_data.model_dump(), job_desc)
+            summary = await generate_summary(tailored_data.model_dump(), job_desc)
 
         # ── Persist ────────────────────────────────────────────────────
         db = get_database()
@@ -415,7 +425,7 @@ async def _tailor_stream(
             "analytics": analytics,
             "templateName": "",
             "pdfUrl": "",
-            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "createdAt": datetime.now(timezone.utc),
         }
         result = await db.generated_resumes.insert_one(gen_doc)
 
@@ -436,5 +446,4 @@ async def _tailor_stream(
             "message": "Tailoring failed. Please try again.",
             "data": {"error": str(e), "baseResumeId": base_resume_id},
         })
-
 

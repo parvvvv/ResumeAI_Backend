@@ -21,6 +21,10 @@ class Settings:
     # --- AI ---
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = "gemini-3-flash-preview"
+    GEMINI_TIMEOUT_SECONDS: float = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "45"))
+    SUPABASE_RPC_TIMEOUT_SECONDS: float = float(os.getenv("SUPABASE_RPC_TIMEOUT_SECONDS", "15"))
+    JSEARCH_TIMEOUT_SECONDS: float = float(os.getenv("JSEARCH_TIMEOUT_SECONDS", "15"))
+    BLOCKING_OPERATION_TIMEOUT_SECONDS: float = float(os.getenv("BLOCKING_OPERATION_TIMEOUT_SECONDS", "60"))
 
     # --- Database ---
     MONGO_URI: str = os.getenv("MONGO_URI", "mongodb://localhost:27017")
@@ -58,6 +62,12 @@ class Settings:
     RATE_LIMIT_PDF: str = "20/minute"
     RATE_LIMIT_GENERAL: str = "60/minute"
     RATE_LIMIT_JOBS: str = "5/minute"
+
+    # --- Concurrency ---
+    AI_PIPELINE_CONCURRENCY: int = int(os.getenv("AI_PIPELINE_CONCURRENCY", "2"))
+    CHAT_CONCURRENCY: int = int(os.getenv("CHAT_CONCURRENCY", "4"))
+    PDF_RENDER_CONCURRENCY: int = int(os.getenv("PDF_RENDER_CONCURRENCY", "2"))
+    BLOCKING_IO_CONCURRENCY: int = int(os.getenv("BLOCKING_IO_CONCURRENCY", "4"))
 
     def __init__(self) -> None:
         # Ensure upload directories exist

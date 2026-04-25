@@ -5,6 +5,7 @@ Provides a singleton database client with startup/shutdown lifecycle hooks.
 
 from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ASCENDING, DESCENDING
 from app.config import settings
 
 _client: Optional[AsyncIOMotorClient] = None
@@ -20,20 +21,25 @@ def get_database():
 async def connect_db() -> None:
     """Initialize MongoDB connection and create indexes."""
     global _client
-    _client = AsyncIOMotorClient(settings.MONGO_URI)
+    _client = AsyncIOMotorClient(settings.MONGO_URI, serverSelectionTimeoutMS=5000)
+    await _client.admin.command("ping")
 
     db = _client[settings.MONGO_DB_NAME]
 
     # Create indexes for performance and uniqueness
     await db.users.create_index("email", unique=True)
     await db.base_resumes.create_index("userId")
+    await db.base_resumes.create_index([("userId", ASCENDING), ("createdAt", DESCENDING)])
     await db.generated_resumes.create_index("userId")
     await db.generated_resumes.create_index("baseResumeId")
+    await db.generated_resumes.create_index([("userId", ASCENDING), ("createdAt", DESCENDING)])
+    await db.generated_resumes.create_index([("userId", ASCENDING), ("baseResumeId", ASCENDING)])
 
     # Jobs collection with TTL index (auto-delete after 24 hours)
     await db.jobs.create_index("createdAt", expireAfterSeconds=86400)
     await db.jobs.create_index("job_id", unique=True)
     await db.jobs.create_index("userId")
+    await db.jobs.create_index([("userId", ASCENDING), ("profile", ASCENDING), ("createdAt", DESCENDING)])
 
 
 async def disconnect_db() -> None:

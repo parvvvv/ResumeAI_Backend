@@ -6,11 +6,13 @@ Uses google-genai SDK with retry logic and strict schema validation.
 import html
 import json
 import re
+import asyncio
 from pathlib import Path
 from google import genai
 from google.genai import types
 from app.config import settings
 from app.models.resume import ResumeData, TailorResponse
+from app.runtime import run_blocking
 from app.security import sanitize_input
 import structlog
 
@@ -85,9 +87,11 @@ async def parse_resume(raw_text: str) -> ResumeData:
         try:
             logger.info("ai_parse_attempt", attempt=attempt)
 
-            response = _client.models.generate_content(
+            response = await run_blocking(
+                _client.models.generate_content,
                 model=settings.GEMINI_MODEL,
                 contents=prompt,
+                timeout=settings.GEMINI_TIMEOUT_SECONDS,
             )
 
             raw_json = _extract_json(response.text)
@@ -103,7 +107,7 @@ async def parse_resume(raw_text: str) -> ResumeData:
             logger.info("ai_parse_success", attempt=attempt)
             return resume_data
 
-        except (json.JSONDecodeError, Exception) as e:
+        except (asyncio.TimeoutError, json.JSONDecodeError, Exception) as e:
             last_error = e
             logger.warning("ai_parse_failed", attempt=attempt, error=str(e))
 
@@ -251,13 +255,16 @@ async def analyze_alignment(base_data: dict, job_description: str):
             logger.info("ai_align_attempt", attempt=attempt)
 
             # Use asynchronous streaming
-            response_stream = await _client.aio.models.generate_content_stream(
-                model=settings.GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.3,
+            response_stream = await asyncio.wait_for(
+                _client.aio.models.generate_content_stream(
+                    model=settings.GEMINI_MODEL,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.3,
+                    ),
                 ),
+                timeout=settings.GEMINI_TIMEOUT_SECONDS,
             )
 
             full_text = ""
@@ -303,13 +310,16 @@ async def optimize_skills(base_data: dict, job_description: str, alignment: dict
         try:
             logger.info("ai_skills_attempt", attempt=attempt)
 
-            response_stream = await _client.aio.models.generate_content_stream(
-                model=settings.GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.4,
+            response_stream = await asyncio.wait_for(
+                _client.aio.models.generate_content_stream(
+                    model=settings.GEMINI_MODEL,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.4,
+                    ),
                 ),
+                timeout=settings.GEMINI_TIMEOUT_SECONDS,
             )
 
             full_text = ""
@@ -362,13 +372,16 @@ async def rewrite_experience(base_data: dict, job_description: str, alignment: d
         try:
             logger.info("ai_experience_attempt", attempt=attempt)
 
-            response_stream = await _client.aio.models.generate_content_stream(
-                model=settings.GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.5,
+            response_stream = await asyncio.wait_for(
+                _client.aio.models.generate_content_stream(
+                    model=settings.GEMINI_MODEL,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.5,
+                    ),
                 ),
+                timeout=settings.GEMINI_TIMEOUT_SECONDS,
             )
 
             full_text = ""
@@ -421,13 +434,16 @@ async def final_polish(base_data: dict, assembled_data: dict, job_description: s
         try:
             logger.info("ai_polish_attempt", attempt=attempt)
 
-            response_stream = await _client.aio.models.generate_content_stream(
-                model=settings.GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.3,
+            response_stream = await asyncio.wait_for(
+                _client.aio.models.generate_content_stream(
+                    model=settings.GEMINI_MODEL,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.3,
+                    ),
                 ),
+                timeout=settings.GEMINI_TIMEOUT_SECONDS,
             )
 
             full_text = ""
@@ -511,9 +527,11 @@ async def generate_summary(resume_data: dict, job_description: str) -> str:
     )
 
     try:
-        response = _client.models.generate_content(
+        response = await run_blocking(
+            _client.models.generate_content,
             model=settings.GEMINI_MODEL,
             contents=prompt,
+            timeout=settings.GEMINI_TIMEOUT_SECONDS,
         )
         return _post_process_strings(sanitize_input(response.text.strip()))
     except Exception as e:

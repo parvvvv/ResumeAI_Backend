@@ -35,7 +35,7 @@ async def chat_endpoint(request: Request, body: ChatRequest):
         if not chat_service.initialized:
             raise HTTPException(status_code=500, detail="Database connection currently offline.")
 
-        answer = chat_service.retrieve_and_answer(query)
+        answer = await chat_service.retrieve_and_answer(query)
         
         total_time = round(time.time() - start_time, 2)
         logger.info("rag_chat_success", query=query, time_secs=total_time, answer_snippet=answer[:50])

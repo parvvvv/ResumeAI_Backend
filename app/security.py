@@ -7,6 +7,7 @@ from fastapi import UploadFile, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
+from jose import JWTError
 import bleach
 import structlog
 
@@ -73,6 +74,28 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
         return response
+
+
+class AuthContextMiddleware(BaseHTTPMiddleware):
+    """Attach authenticated user context when a valid bearer token is present."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        auth_header = request.headers.get("Authorization", "")
+
+        if auth_header.startswith("Bearer "):
+            token = auth_header[len("Bearer ") :].strip()
+            if token:
+                from app.services.auth_service import decode_jwt
+
+                try:
+                    payload = decode_jwt(token)
+                    request.state.user_id = payload.get("sub")
+                except JWTError:
+                    request.state.user_id = None
+        else:
+            request.state.user_id = None
+
+        return await call_next(request)
 
 
 # ---------------------------------------------------------------------------

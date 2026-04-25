@@ -4,7 +4,7 @@ Authentication router: signup and login with rate limiting.
 
 from fastapi import APIRouter, HTTPException, status, Request
 from app.models.user import UserSignup, UserLogin, TokenResponse, UserResponse, RefreshTokenRequest, RefreshTokenResponse
-from app.services.auth_service import hash_password, verify_password, create_access_token, create_refresh_token, decode_jwt
+from app.services.auth_service import hash_password_async, verify_password_async, create_access_token, create_refresh_token, decode_jwt
 from jose import JWTError
 from app.database import get_database
 from app.security import sanitize_input
@@ -39,8 +39,8 @@ async def signup(request: Request, body: UserSignup):
     # Create user document
     user_doc = {
         "email": email,
-        "passwordHash": hash_password(body.password),
-        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "passwordHash": await hash_password_async(body.password),
+        "createdAt": datetime.now(timezone.utc),
     }
     result = await db.users.insert_one(user_doc)
     user_id = str(result.inserted_id)
@@ -66,7 +66,7 @@ async def login(request: Request, body: UserLogin):
     email = body.email.lower().strip()
     user = await db.users.find_one({"email": email})
 
-    if not user or not verify_password(body.password, user["passwordHash"]):
+    if not user or not await verify_password_async(body.password, user["passwordHash"]):
         # Intentionally vague error to prevent user enumeration
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

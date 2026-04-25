@@ -6,13 +6,13 @@ Sets up CORS, middleware, rate limiting, and mounts all routers.
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 import structlog
 
 from app.config import settings
-from app.database import connect_db, disconnect_db
-from app.security import SecurityHeadersMiddleware, RequestIDMiddleware
+from app.database import connect_db, disconnect_db, get_database
+from app.runtime import get_runtime, init_runtime, shutdown_runtime
+from app.security import SecurityHeadersMiddleware, RequestIDMiddleware, AuthContextMiddleware
 from app.middleware.rate_limit import limiter, rate_limit_exceeded_handler, SlowAPIMiddleware
 from app.routers import auth, resume, pdf, dashboard, notifications, jobs, chat
 
@@ -41,13 +41,15 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
-    logger.info("app_starting", mongo_uri=settings.MONGO_URI)
+    logger.info("app_starting", environment=settings.APP_ENV)
     await connect_db()
+    app.state.runtime = await init_runtime()
     logger.info("app_started", database=settings.MONGO_DB_NAME)
     yield
     # Shutdown: close shared Playwright browser
     from app.services.pdf_service import shutdown_browser
     await shutdown_browser()
+    await shutdown_runtime()
     await disconnect_db()
     logger.info("app_stopped")
 
@@ -87,6 +89,9 @@ app.add_middleware(SecurityHeadersMiddleware)
 # Request ID tracing
 app.add_middleware(RequestIDMiddleware)
 
+# Auth context for user-aware rate limiting
+app.add_middleware(AuthContextMiddleware)
+
 # Rate limiting (internal middleware)
 app.add_middleware(SlowAPIMiddleware)
 
@@ -109,3 +114,40 @@ app.include_router(chat.router)
 async def health_check():
     """Simple health check endpoint."""
     return {"status": "ok", "service": "resumeai"}
+
+
+@app.get("/api/health/live", tags=["Health"])
+async def live_health_check():
+    """Liveness probe: confirms the process is serving requests."""
+    return {"status": "ok", "service": "resumeai", "check": "live"}
+
+
+@app.get("/api/health/ready", tags=["Health"])
+async def ready_health_check():
+    """Readiness probe: confirms core app resources are initialized."""
+    mongo_status = "unknown"
+    runtime_status = "unknown"
+
+    try:
+        database = get_database()
+        await database.command("ping")
+        mongo_status = "ok"
+    except Exception:
+        mongo_status = "error"
+
+    try:
+        runtime = get_runtime()
+        runtime_status = "ok" if runtime.http_client else "error"
+    except Exception:
+        runtime_status = "error"
+
+    ready = mongo_status == "ok" and runtime_status == "ok"
+    return {
+        "status": "ok" if ready else "degraded",
+        "service": "resumeai",
+        "check": "ready",
+        "dependencies": {
+            "mongo": mongo_status,
+            "runtime": runtime_status,
+        },
+    }

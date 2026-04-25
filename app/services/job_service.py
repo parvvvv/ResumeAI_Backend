@@ -10,6 +10,7 @@ from typing import Optional
 
 
 from app.config import settings
+from app.runtime import get_runtime
 
 logger = structlog.get_logger()
 
@@ -134,42 +135,41 @@ async def fetch_job_details(
         return None
 
     url = f"https://{settings.JSEARCH_HOST}/job-details"
+    client = get_runtime().http_client
+    params = {"job_id": job_id, "country": "in"}
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        params = {"job_id": job_id, "country": "in"}
+    for i, key in enumerate(api_keys):
+        try:
+            headers = {
+                "Content-Type": "application/json",
+                "x-rapidapi-host": settings.JSEARCH_HOST,
+                "x-rapidapi-key": key,
+            }
 
-        for i, key in enumerate(api_keys):
-            try:
-                headers = {
-                    "Content-Type": "application/json",
-                    "x-rapidapi-host": settings.JSEARCH_HOST,
-                    "x-rapidapi-key": key,
-                }
+            logger.info("jsearch_details_request", key_index=i, job_id=job_id)
+            response = await client.get(url, params=params, headers=headers)
 
-                logger.info("jsearch_details_request", key_index=i, job_id=job_id)
-                response = await client.get(url, params=params, headers=headers)
-
-                if response.status_code in (429, 403):
-                    logger.warning("jsearch_key_exhausted", key_index=i, status=response.status_code)
-                    continue
-
-                response.raise_for_status()
-                data = response.json()
-                jobs = data.get("data", [])
-
-                if jobs:
-                    logger.info("jsearch_details_success", key_index=i, job_id=job_id)
-                    return jobs[0]  # Return first (and only) job
-
-                logger.warning("jsearch_details_empty", job_id=job_id)
-                return None
-
-            except httpx.HTTPStatusError as e:
-                logger.error("jsearch_details_http_error", key_index=i, error=str(e))
+            if response.status_code in (429, 403):
+                logger.warning("jsearch_key_exhausted", key_index=i, status=response.status_code)
                 continue
-            except httpx.RequestError as e:
-                logger.error("jsearch_details_request_error", key_index=i, error=str(e))
-                continue
+
+            response.raise_for_status()
+            data = response.json()
+            jobs = data.get("data", [])
+
+            if jobs:
+                logger.info("jsearch_details_success", key_index=i, job_id=job_id)
+                return jobs[0]  # Return first (and only) job
+
+            logger.warning("jsearch_details_empty", job_id=job_id)
+            return None
+
+        except httpx.HTTPStatusError as e:
+            logger.error("jsearch_details_http_error", key_index=i, error=str(e))
+            continue
+        except httpx.RequestError as e:
+            logger.error("jsearch_details_request_error", key_index=i, error=str(e))
+            continue
 
     logger.error("jsearch_details_all_attempts_failed", job_id=job_id)
     return None
@@ -193,49 +193,49 @@ async def fetch_jobs(
     # Try progressively wider date ranges
     date_filters = ["today", "3days", "week"]
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        for date_posted in date_filters:
-            params = {
-                "query": query,
-                "page": "1",
-                "num_pages": str(num_pages),
-                "country": "in",
-                "date_posted": date_posted,
-            }
+    client = get_runtime().http_client
+    for date_posted in date_filters:
+        params = {
+            "query": query,
+            "page": "1",
+            "num_pages": str(num_pages),
+            "country": "in",
+            "date_posted": date_posted,
+        }
 
-            for i, key in enumerate(api_keys):
-                try:
-                    headers = {
-                        "Content-Type": "application/json",
-                        "x-rapidapi-host": settings.JSEARCH_HOST,
-                        "x-rapidapi-key": key,
-                    }
+        for i, key in enumerate(api_keys):
+            try:
+                headers = {
+                    "Content-Type": "application/json",
+                    "x-rapidapi-host": settings.JSEARCH_HOST,
+                    "x-rapidapi-key": key,
+                }
 
-                    logger.info("jsearch_request", key_index=i, query=query[:60], date_posted=date_posted)
-                    response = await client.get(url, params=params, headers=headers)
+                logger.info("jsearch_request", key_index=i, query=query[:60], date_posted=date_posted)
+                response = await client.get(url, params=params, headers=headers)
 
-                    if response.status_code in (429, 403):
-                        logger.warning("jsearch_key_exhausted", key_index=i, status=response.status_code)
-                        continue  # Try next key
+                if response.status_code in (429, 403):
+                    logger.warning("jsearch_key_exhausted", key_index=i, status=response.status_code)
+                    continue  # Try next key
 
-                    response.raise_for_status()
-                    data = response.json()
-                    jobs = data.get("data", [])
+                response.raise_for_status()
+                data = response.json()
+                jobs = data.get("data", [])
 
-                    if jobs:
-                        logger.info("jsearch_success", key_index=i, job_count=len(jobs), date_posted=date_posted)
-                        return jobs
+                if jobs:
+                    logger.info("jsearch_success", key_index=i, job_count=len(jobs), date_posted=date_posted)
+                    return jobs
 
-                    # No jobs with this date range, try wider
-                    logger.info("jsearch_empty", key_index=i, date_posted=date_posted)
-                    break  # Don't try other keys, try wider date range
+                # No jobs with this date range, try wider
+                logger.info("jsearch_empty", key_index=i, date_posted=date_posted)
+                break  # Don't try other keys, try wider date range
 
-                except httpx.HTTPStatusError as e:
-                    logger.error("jsearch_http_error", key_index=i, error=str(e))
-                    continue
-                except httpx.RequestError as e:
-                    logger.error("jsearch_request_error", key_index=i, error=str(e))
-                    continue
+            except httpx.HTTPStatusError as e:
+                logger.error("jsearch_http_error", key_index=i, error=str(e))
+                continue
+            except httpx.RequestError as e:
+                logger.error("jsearch_request_error", key_index=i, error=str(e))
+                continue
 
     logger.error("jsearch_all_attempts_failed", total_keys=len(api_keys))
     return []

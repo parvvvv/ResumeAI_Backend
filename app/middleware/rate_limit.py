@@ -9,6 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from jose import JWTError
 from app.config import settings
 
 
@@ -19,6 +20,20 @@ def _get_user_or_ip(request: Request) -> str:
     user_id = getattr(request.state, "user_id", None)
     if user_id:
         return str(user_id)
+
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[len("Bearer ") :].strip()
+        if token:
+            from app.services.auth_service import decode_jwt
+
+            try:
+                payload = decode_jwt(token)
+                subject = payload.get("sub")
+                if subject:
+                    return str(subject)
+            except JWTError:
+                pass
     return get_remote_address(request)
 
 

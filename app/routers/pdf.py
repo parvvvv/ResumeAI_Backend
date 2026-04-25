@@ -5,6 +5,8 @@ Uses Supabase Storage when configured, local disk otherwise.
 """
 
 import uuid
+from datetime import datetime, timezone
+from typing import Optional
 from bson import ObjectId
 from fastapi import APIRouter, HTTPException, status, Depends, Request, BackgroundTasks
 from fastapi.responses import FileResponse
@@ -23,6 +25,25 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api/resume", tags=["PDF"])
 
 
+async def _update_pdf_status(
+    db,
+    resume_id: str,
+    is_generated: bool,
+    status_value: str,
+    extra_fields: Optional[dict] = None,
+):
+    """Update PDF status metadata for a base or generated resume."""
+    collection = db.generated_resumes if is_generated else db.base_resumes
+    update_fields = {"pdfStatus": status_value}
+    if extra_fields:
+        update_fields.update(extra_fields)
+
+    await collection.update_one(
+        {"_id": ObjectId(resume_id)},
+        {"$set": update_fields},
+    )
+
+
 async def _generate_pdf_background(
     resume_data: dict,
     template_name: str,
@@ -31,7 +52,9 @@ async def _generate_pdf_background(
     user_id: str,
 ):
     """Background task: generate PDF, upload to storage, notify user via SSE."""
+    db = get_database()
     try:
+        await _update_pdf_status(db, resume_id, is_generated, "processing")
         pdf_bytes = await generate_pdf(resume_data, template_name)
 
         # Upload PDF to storage (Supabase or local)
@@ -39,12 +62,17 @@ async def _generate_pdf_background(
         pdf_url = await upload_pdf(pdf_bytes, filename)
 
         # Update the resume record with pdfUrl and templateName
-        db = get_database()
-        if is_generated:
-            await db.generated_resumes.update_one(
-                {"_id": ObjectId(resume_id)},
-                {"$set": {"pdfUrl": pdf_url, "templateName": template_name}},
-            )
+        await _update_pdf_status(
+            db,
+            resume_id,
+            is_generated,
+            "ready",
+            {
+                "pdfUrl": pdf_url,
+                "templateName": template_name,
+                "pdfCompletedAt": datetime.now(timezone.utc),
+            },
+        )
 
         logger.info("pdf_generated", filename=filename, size_kb=len(pdf_bytes) // 1024)
 
@@ -57,6 +85,13 @@ async def _generate_pdf_background(
 
     except Exception as e:
         logger.error("pdf_generation_failed_bg", error=str(e))
+        await _update_pdf_status(
+            db,
+            resume_id,
+            is_generated,
+            "failed",
+            {"pdfCompletedAt": datetime.now(timezone.utc)},
+        )
         await notification_service.notify(user_id, Notification(
             event="pdf_failed",
             message="PDF generation failed. Please try again.",
@@ -97,6 +132,16 @@ async def generate_pdf_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found.")
 
     # Schedule background generation
+    await _update_pdf_status(
+        db,
+        body.resumeId,
+        body.isGenerated,
+        "processing",
+        {
+            "pdfRequestedAt": datetime.now(timezone.utc),
+            "pdfCompletedAt": None,
+        },
+    )
     background_tasks.add_task(
         _generate_pdf_background,
         resume_data,

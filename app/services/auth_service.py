@@ -2,10 +2,13 @@
 Authentication service: password hashing and JWT management.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
 import bcrypt
 from jose import JWTError, jwt
 from app.config import settings
+from app.runtime import run_blocking
 
 
 def hash_password(password: str) -> str:
@@ -21,6 +24,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         plain_password.encode("utf-8"),
         hashed_password.encode("utf-8"),
     )
+
+
+async def hash_password_async(password: str) -> str:
+    """Hash a password without blocking the event loop."""
+    return await run_blocking(hash_password, password)
+
+
+async def verify_password_async(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password without blocking the event loop."""
+    return await run_blocking(verify_password, plain_password, hashed_password)
 
 
 def create_access_token(user_id: str, email: str) -> str:

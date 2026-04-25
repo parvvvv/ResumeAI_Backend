@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 import structlog
+from app.runtime import get_runtime
 
 logger = structlog.get_logger()
 
@@ -154,67 +155,69 @@ async def generate_pdf(resume_data: dict, template_name: str = "modern") -> byte
     Returns:
         PDF file contents as bytes.
     """
-    t_start = time.perf_counter()
+    runtime = get_runtime()
+    async with runtime.pdf_semaphore:
+        t_start = time.perf_counter()
 
-    template_file = f"{template_name}.html"
-    template = _jinja_env.get_template(template_file)
-    html_content = template.render(resume=resume_data)
+        template_file = f"{template_name}.html"
+        template = _jinja_env.get_template(template_file)
+        html_content = template.render(resume=resume_data)
 
-    logger.info("pdf_generating", template=template_name)
+        logger.info("pdf_generating", template=template_name)
 
-    # ── First attempt at full scale ──────────────────────────────────────
-    page_count, pdf_bytes = await _count_pages_playwright(html_content)
+        # ── First attempt at full scale ──────────────────────────────────────
+        page_count, pdf_bytes = await _count_pages_playwright(html_content)
 
-    elapsed = round((time.perf_counter() - t_start) * 1000)
-
-    if page_count <= 1:
-        logger.info(
-            "pdf_generated",
-            size_kb=len(pdf_bytes) // 1024,
-            pages=page_count,
-            final_scale=1.0,
-            elapsed_ms=elapsed,
-        )
-        return pdf_bytes
-
-    # ── Binary-search shrink to fit on 1 page ────────────────────────────
-    lo, hi = 0.70, 0.95
-    best_pdf = None
-    best_scale = lo
-    attempts = 0
-
-    while hi - lo > 0.03:
-        attempts += 1
-        mid = round((lo + hi) / 2, 3)
-        current_html = _shrink_font_in_html(html_content, mid)
-        page_count, pdf_bytes = await _count_pages_playwright(current_html)
-
-        logger.info("pdf_shrinking", scale=mid, pages=page_count, attempt=attempts)
+        elapsed = round((time.perf_counter() - t_start) * 1000)
 
         if page_count <= 1:
-            best_pdf = pdf_bytes
-            best_scale = mid
-            lo = mid   # Try less shrinking
-        else:
-            hi = mid   # Need more shrinking
+            logger.info(
+                "pdf_generated",
+                size_kb=len(pdf_bytes) // 1024,
+                pages=page_count,
+                final_scale=1.0,
+                elapsed_ms=elapsed,
+            )
+            return pdf_bytes
 
-    elapsed = round((time.perf_counter() - t_start) * 1000)
+        # ── Binary-search shrink to fit on 1 page ────────────────────────────
+        lo, hi = 0.70, 0.95
+        best_pdf = None
+        best_scale = lo
+        attempts = 0
 
-    if best_pdf is not None:
-        logger.info(
-            "pdf_generated",
-            size_kb=len(best_pdf) // 1024,
-            final_scale=best_scale,
-            attempts=attempts,
-            elapsed_ms=elapsed,
-        )
-        return best_pdf
+        while hi - lo > 0.03:
+            attempts += 1
+            mid = round((lo + hi) / 2, 3)
+            current_html = _shrink_font_in_html(html_content, mid)
+            page_count, pdf_bytes = await _count_pages_playwright(current_html)
 
-    # Fallback: render at minimum scale
-    logger.warning("pdf_min_scale_reached", scale=0.70)
-    final_html = _shrink_font_in_html(html_content, 0.70)
-    _, pdf_bytes = await _count_pages_playwright(final_html)
+            logger.info("pdf_shrinking", scale=mid, pages=page_count, attempt=attempts)
 
-    elapsed = round((time.perf_counter() - t_start) * 1000)
-    logger.info("pdf_generated_clipped", size_kb=len(pdf_bytes) // 1024, elapsed_ms=elapsed)
-    return pdf_bytes
+            if page_count <= 1:
+                best_pdf = pdf_bytes
+                best_scale = mid
+                lo = mid   # Try less shrinking
+            else:
+                hi = mid   # Need more shrinking
+
+        elapsed = round((time.perf_counter() - t_start) * 1000)
+
+        if best_pdf is not None:
+            logger.info(
+                "pdf_generated",
+                size_kb=len(best_pdf) // 1024,
+                final_scale=best_scale,
+                attempts=attempts,
+                elapsed_ms=elapsed,
+            )
+            return best_pdf
+
+        # Fallback: render at minimum scale
+        logger.warning("pdf_min_scale_reached", scale=0.70)
+        final_html = _shrink_font_in_html(html_content, 0.70)
+        _, pdf_bytes = await _count_pages_playwright(final_html)
+
+        elapsed = round((time.perf_counter() - t_start) * 1000)
+        logger.info("pdf_generated_clipped", size_kb=len(pdf_bytes) // 1024, elapsed_ms=elapsed)
+        return pdf_bytes

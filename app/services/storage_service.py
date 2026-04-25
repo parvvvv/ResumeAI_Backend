@@ -7,6 +7,7 @@ import uuid
 from typing import Optional
 import structlog
 from app.config import settings
+from app.runtime import run_blocking
 
 logger = structlog.get_logger()
 
@@ -37,9 +38,8 @@ async def upload_pdf(pdf_bytes: bytes, filename: Optional[str] = None) -> str:
         filename = f"{uuid.uuid4().hex}.pdf"
 
     if is_supabase_configured():
-        return _upload_to_supabase(pdf_bytes, filename)
-    else:
-        return _save_local(pdf_bytes, filename)
+        return await run_blocking(_upload_to_supabase, pdf_bytes, filename)
+    return await run_blocking(_save_local, pdf_bytes, filename)
 
 
 def _upload_to_supabase(pdf_bytes: bytes, filename: str) -> str:
@@ -89,9 +89,9 @@ async def delete_pdf(pdf_url: str) -> None:
         return
 
     if is_supabase_configured() and "supabase" in pdf_url:
-        _delete_from_supabase(pdf_url)
+        await run_blocking(_delete_from_supabase, pdf_url)
     elif pdf_url.startswith("/api/resume/pdf/"):
-        _delete_local(pdf_url)
+        await run_blocking(_delete_local, pdf_url)
 
 
 def _delete_from_supabase(pdf_url: str) -> None:
