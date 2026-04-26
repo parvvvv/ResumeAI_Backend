@@ -51,7 +51,7 @@ async def upload_and_parse(
     # Validate file
     content = await validate_pdf_upload(file)
 
-    # Stage 1 – text extraction
+    # Stage 1 - text extraction
     await notification_service.notify(user_id, Notification(
         event="parse_progress",
         message="Extracting text from your PDF...",
@@ -74,7 +74,7 @@ async def upload_and_parse(
             detail="No text found in PDF. Scanned/image-based PDFs are not supported.",
         )
 
-    # Stage 2 – AI parsing
+    # Stage 2 - AI parsing
     await notification_service.notify(user_id, Notification(
         event="parse_progress",
         message="AI is identifying and mapping resume sections...",
@@ -93,7 +93,7 @@ async def upload_and_parse(
             detail="AI failed to parse the resume. Please try again.",
         )
 
-    # Stage 3 – persist
+    # Stage 3 - persist
     await notification_service.notify(user_id, Notification(
         event="parse_progress",
         message="Finalizing structured data and saving your resume...",
@@ -360,7 +360,7 @@ async def _tailor_stream(
             alignment = align_res[0]
 
             yield _sse("tailor_progress", {
-                "message": "Gap analysis complete — optimizing skills section...",
+                "message": "Gap analysis complete - optimizing skills section...",
                 "data": {
                     "percent": 25, "stage": 2,
                     "baseResumeId": base_resume_id,
@@ -377,7 +377,7 @@ async def _tailor_stream(
             optimized_skills = skills_res[0]
 
             yield _sse("tailor_progress", {
-                "message": "Skills optimized — rewriting experience & projects...",
+                "message": "Skills optimized - rewriting experience & projects...",
                 "data": {"percent": 45, "stage": 3, "baseResumeId": base_resume_id},
             })
 

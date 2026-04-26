@@ -37,7 +37,7 @@ def _get_user_or_ip(request: Request) -> str:
     return get_remote_address(request)
 
 
-# Global limiter instance — attach to app in main.py
+# Global limiter instance - attach to app in main.py
 limiter = Limiter(
     key_func=_get_user_or_ip,
     default_limits=[settings.RATE_LIMIT_GENERAL],

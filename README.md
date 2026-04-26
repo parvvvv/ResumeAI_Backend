@@ -1,4 +1,4 @@
-# ResumeAI 🧠 — Backend (v2.0)
+# ResumeAI 🧠 - Backend (v2.0)
 
 The intelligent core of ResumeAI. This is a production-hardened **FastAPI** engine that orchestrates AI-driven resume tailoring, real-time RAG (Retrieval-Augmented Generation) chat, and automated job discovery.
 

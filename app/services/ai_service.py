@@ -69,8 +69,9 @@ def _post_process_strings(data: Any) -> Any:
     elif isinstance(data, str):
         # Decode HTML entities (e.g. &amp; -> &) left by bleach
         text = html.unescape(data)
-        # Replace em dashes with en dashes for cleaner PDF rendering
-        text = text.replace("\u2014", "\u2013")  # — → –
+        # Replace em and en dashes with normal dashes
+        text = text.replace("\u2014", "-")  # - -> -
+        text = text.replace("\u2013", "-")  # - -> -
         return text
     return data
 
@@ -124,16 +125,59 @@ async def parse_resume(raw_text: str) -> ResumeData:
 
 # ─── Alignment Analysis Prompt ────────────────────────────────────
 _ALIGN_PROMPT_TEMPLATE = """
-You are a senior resume strategist. Analyze the alignment between this resume and the job description.
+You are a ruthlessly honest ATS scoring engine. Your job is to give the candidate a REALISTIC picture of how well their resume matches this JD - NOT to make them feel good.
+
+SCORING RUBRIC - atsScore is the weighted sum of these 6 dimensions:
+
+1. HARD SKILL MATCH (30 pts)
+   - For each required/preferred hard skill in the JD, check if the resume explicitly mentions it (exact term or widely-accepted synonym).
+   - Score = (matched / total required+preferred) × 30, rounded down.
+   - Partial credit only for genuinely close synonyms (e.g., "React" covers "React.js" but NOT "JavaScript").
+
+2. EXPERIENCE RELEVANCE (25 pts)
+   - Do the candidate's roles, industries, and day-to-day responsibilities directly overlap with the JD?
+   - Same domain + same seniority = 20-25. Adjacent domain = 10-18. Different domain = 0-9.
+
+3. QUANTIFIED IMPACT (15 pts)
+   - How many bullets contain concrete, specific metrics (numbers, percentages, dollar amounts)?
+   - All/most = 12-15. Some = 6-11. Few/none = 0-5.
+
+4. KEYWORD DENSITY & PLACEMENT (15 pts)
+   - Are JD-critical keywords naturally woven into experience bullets (not just skills list)?
+   - Well-distributed across sections = 12-15. Only in skills = 5-8. Sparse = 0-4.
+
+5. ROLE TITLE & SENIORITY ALIGNMENT (10 pts)
+   - Does the candidate's most recent title plausibly match the JD's target level?
+   - Exact match = 8-10. One level off = 4-7. Far mismatch = 0-3.
+
+6. EDUCATION & CERTIFICATIONS (5 pts)
+   - Does the candidate hold the required degree/certifications listed in the JD?
+   - All met = 4-5. Partially met = 2-3. Not met = 0-1.
+
+SCORE CALIBRATION (STRICT):
+- 86-100: EXCEPTIONAL - Nearly impossible. Reserve for candidates who match 95%%+ of JD requirements with direct, same-company-type experience. Almost no resume earns this before tailoring.
+- 76-85:  EXCELLENT - Strong match across most dimensions. Only for candidates with significant direct overlap.
+- 61-75:  STRONG - Good foundation with notable gaps. Most well-matched candidates land here.
+- 41-60:  MODERATE - Meaningful gaps in skills or experience. Domain-adjacent candidates typically land here.
+- 0-40:   WEAK - Major misalignment in domain, skills, or seniority.
+
+CRITICAL RULES:
+- The AVERAGE score for a random resume against a random JD should be ~35-45.
+- A good-but-not-tailored resume against a relevant JD should score 50-65.
+- A well-tailored resume for a strong-match candidate should score 68-80.
+- Scores above 85 should be EXTREMELY rare - only when the resume is almost a perfect mirror of the JD.
+- NEVER give 90+ unless the candidate could literally copy-paste JD requirements as their resume.
+- Be especially harsh on missing hard skills - each missing required skill should cost 3-5 points.
+- Do NOT give credit for vague/generic matches (e.g., "communication skills" matching "strong communicator").
 
 Output a JSON object with exactly these keys:
-- "atsScore": integer 0-100, how well this resume would score in an ATS for this JD
+- "atsScore": integer 0-100 following the rubric above STRICTLY
 - "similarityToOriginal": integer 0-100 (will be 100 since resume is unchanged at this point)
 - "rewriteIntensity": one of "enhancement", "reframe", "transform"
 - "keyChanges": array of 4-6 short strings describing the most impactful changes to make
-- "matchedKeywords": array of JD keywords already present in the resume
+- "matchedKeywords": array of JD keywords already present in the resume (be precise - only exact or very close matches)
 - "missingKeywords": array of important JD keywords missing from the resume
-- "domainMatch": string — "same", "adjacent", or "different"
+- "domainMatch": string - "same", "adjacent", or "different"
 - "skillOverlapPercent": integer 0-100
 
 RESUME JSON:
@@ -176,7 +220,7 @@ You are an elite resume writer. Using the alignment analysis below, rewrite the 
 ALIGNMENT ANALYSIS:
 {alignment_json}
 
-OPTIMIZED SKILLS (already rewritten — use these as context for keyword consistency):
+OPTIMIZED SKILLS (already rewritten - use these as context for keyword consistency):
 {skills_json}
 
 RULES based on rewriteIntensity:
@@ -215,14 +259,31 @@ Your tasks:
 1. Ensure keyword consistency across all sections (skills mentioned should appear in bullets where natural).
 2. Fix any awkward phrasing or redundancy introduced during rewriting.
 3. Ensure personalInfo is UNCHANGED from the original.
-4. Verify bullet ordering — most JD-relevant achievements first within each role/project.
+4. Verify bullet ordering - most JD-relevant achievements first within each role/project.
 5. Ensure length stays within ±15%% of {char_budget} characters.
-6. Produce final analytics.
+6. Produce final analytics using the STRICT scoring rubric below.
+
+ATS SCORE RUBRIC (you MUST follow this - do NOT inflate):
+1. HARD SKILL MATCH (30 pts): (matched_required_skills / total_required_skills) × 30
+2. EXPERIENCE RELEVANCE (25 pts): Same domain+seniority=20-25, Adjacent=10-18, Different=0-9
+3. QUANTIFIED IMPACT (15 pts): All bullets have metrics=12-15, Some=6-11, Few=0-5
+4. KEYWORD DENSITY & PLACEMENT (15 pts): Well-distributed=12-15, Skills-only=5-8, Sparse=0-4
+5. ROLE TITLE & SENIORITY ALIGNMENT (10 pts): Exact=8-10, One-level-off=4-7, Mismatch=0-3
+6. EDUCATION & CERTIFICATIONS (5 pts): All met=4-5, Partial=2-3, Not met=0-1
+
+SCORE CALIBRATION:
+- 86-100: EXCEPTIONAL - reserve for 95%%+ JD match with direct same-industry experience. EXTREMELY rare.
+- 76-85: EXCELLENT - strong match. Only when most dimensions score near max.
+- 61-75: STRONG - good match with some gaps. This is where most well-tailored resumes should land.
+- 41-60: MODERATE - meaningful gaps remain.
+- 0-40: WEAK - major misalignment.
+
+CRITICAL: Even after tailoring, most resumes should score 62-78. Scores above 82 require near-perfect alignment. Never give 90+ unless the resume is essentially a mirror of the JD requirements. Each missing required skill costs 3-5 points. Do not award points for generic/vague matches.
 
 Output a JSON object with exactly two keys:
 - "resume": the final polished resume JSON (same schema: personalInfo, workExperience, skills, projects, education)
 - "analytics": object with these keys:
-  - "atsScore": integer 0-100
+  - "atsScore": integer 0-100 (FOLLOW THE RUBRIC STRICTLY)
   - "similarityToOriginal": integer 0-100 (reflect rewrite intensity: enhancement ~60-70, reframe ~40-55, transform ~25-40)
   - "keyChanges": array of 4-6 short strings describing the most significant changes made
   - "matchedKeywords": array of JD keywords now present in the resume
@@ -242,7 +303,7 @@ async def analyze_alignment(base_data: dict, job_description: str):
     """
     Step 1 of 4: Analyze the gap between the resume and the JD.
     Returns an analytics/alignment dict including rewriteIntensity, keywords, ATS score.
-    This is a fast, targeted call — no rewriting happens here.
+    This is a fast, targeted call - no rewriting happens here.
     """
     prompt = _ALIGN_PROMPT_TEMPLATE.format(
         resume_json=json.dumps(base_data, indent=2),
@@ -497,7 +558,7 @@ async def final_polish(base_data: dict, assembled_data: dict, job_description: s
 
 async def tailor_resume(base_data: dict, job_description: str, raw_text_length: int = 0) -> tuple:
     """
-    Legacy wrapper — runs the full 4-step pipeline in one shot.
+    Legacy wrapper - runs the full 4-step pipeline in one shot.
     Prefer calling the steps individually when you need to emit SSE progress between them.
     """
     alignment = await analyze_alignment(base_data, job_description)
@@ -519,9 +580,9 @@ async def generate_summary(resume_data: dict, job_description: str) -> str:
     """Generate a short summary label for the dashboard card."""
     prompt = (
         "Write a SHORT dashboard label (max 8-10 words) for this tailored resume. "
-        "Format: '[Role] at [Company]' or '[Role] – [Industry]'. "
-        "Examples: 'DevOps Engineer at Netflix', 'HR Intern – Recruitment Focus', "
-        "'Full Stack Developer – Fintech'. No quotes, no markdown, no punctuation at end.\n\n"
+        "Format: '[Role] at [Company]' or '[Role] - [Industry]'. "
+        "Examples: 'DevOps Engineer at Netflix', 'HR Intern - Recruitment Focus', "
+        "'Full Stack Developer - Fintech'. No quotes, no markdown, no punctuation at end.\n\n"
         f"Job Description: {job_description[:300]}\n"
         f"Candidate: {resume_data.get('personalInfo', {}).get('fullName', 'Unknown')}"
     )

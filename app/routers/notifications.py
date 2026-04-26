@@ -26,7 +26,7 @@ async def notification_stream(
     token: str = Query(..., description="JWT token (EventSource can't send headers)"),
 ):
     """
-    SSE endpoint — client connects and receives real-time notifications.
+    SSE endpoint - client connects and receives real-time notifications.
     Token is passed as a query parameter since EventSource doesn't support custom headers.
     """
     # Validate token manually (can't use Depends with EventSource)

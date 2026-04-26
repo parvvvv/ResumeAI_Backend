@@ -100,7 +100,7 @@ def _extract_role_keywords(summaries: list[str], profile: str, max_keywords: int
 
 
 def build_search_query(profile: str, summaries: list[str]) -> str:
-    """Build a concise JSearch query — shorter queries get better results."""
+    """Build a concise JSearch query - shorter queries get better results."""
     role_keywords = _extract_role_keywords(summaries, profile)
     roles_str = " ".join(role_keywords) if role_keywords else ""
 

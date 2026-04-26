@@ -237,11 +237,11 @@
                     <div>
                         <span class="entry-company">{{ exp.role }}, {{ exp.company }}</span>
                         {% if exp.location %}
-                        <span class="entry-location"> – {{ exp.location }}</span>
+                        <span class="entry-location"> - {{ exp.location }}</span>
                         {% endif %}
                     </div>
                     {% if exp.startDate and exp.endDate %}
-                    <span class="entry-date">{{ exp.startDate }} – {{ exp.endDate }}</span>
+                    <span class="entry-date">{{ exp.startDate }} - {{ exp.endDate }}</span>
                     {% elif exp.startDate %}
                     <span class="entry-date">{{ exp.startDate }}</span>
                     {% elif exp.endDate %}
@@ -295,7 +295,7 @@
                 <div>
                     <span class="project-title">{{ proj.name }}</span>
                     {% if proj.description %}
-                    <span class="project-subtitle"> – {{ proj.description }}</span>
+                    <span class="project-subtitle"> - {{ proj.description }}</span>
                     {% endif %}
                 </div>
                 {% if proj.points %}
@@ -323,11 +323,11 @@
                     <div>
                         <span class="edu-institution">{{ edu.institution }}</span>
                         {% if edu.degree or edu.field %}
-                        <span class="edu-degree"> – {{ edu.degree }}{% if edu.field %} in {{ edu.field }}{% endif %}</span>
+                        <span class="edu-degree"> - {{ edu.degree }}{% if edu.field %} in {{ edu.field }}{% endif %}</span>
                         {% endif %}
                     </div>
                     {% if edu.startYear and edu.endYear %}
-                    <span class="edu-date">{{ edu.startYear }} – {{ edu.endYear }}</span>
+                    <span class="edu-date">{{ edu.startYear }} - {{ edu.endYear }}</span>
                     {% elif edu.startYear %}
                     <span class="edu-date">{{ edu.startYear }}</span>
                     {% elif edu.endYear %}
