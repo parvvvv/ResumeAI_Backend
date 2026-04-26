@@ -37,6 +37,7 @@ class Settings:
     JWT_REFRESH_EXPIRY_DAYS: int = int(os.getenv("JWT_REFRESH_EXPIRY_DAYS", "7"))
     BCRYPT_ROUNDS: int = 12
     MIN_PASSWORD_LENGTH: int = 8
+    ADMIN_EMAILS: list = []
 
     # --- CORS ---
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -77,6 +78,14 @@ class Settings:
         # Parse comma-separated JSearch API keys
         raw_keys = os.getenv("JSEARCH_API_KEYS", "")
         self.JSEARCH_API_KEYS = [k.strip() for k in raw_keys.split(",") if k.strip()]
+
+        # Parse comma-separated admin bootstrap emails
+        raw_admin_emails = os.getenv("ADMIN_EMAILS", "")
+        self.ADMIN_EMAILS = [
+            email.strip().lower()
+            for email in raw_admin_emails.split(",")
+            if email.strip()
+        ]
 
         # Warn about insecure defaults
         if self.JWT_SECRET == "CHANGE_ME_IN_PRODUCTION":

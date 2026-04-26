@@ -35,3 +35,15 @@ async def get_current_user_id(
 ) -> str:
     """Convenience dependency that returns just the user ID string."""
     return payload["sub"]
+
+
+async def get_current_admin_user(
+    payload: dict = Depends(get_current_user),
+) -> dict:
+    """Require an authenticated admin user."""
+    if payload.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return payload

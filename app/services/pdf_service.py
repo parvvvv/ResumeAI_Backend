@@ -26,14 +26,17 @@ _jinja_env = Environment(
 # Reusing a single browser instance avoids the ~1-2s Chromium cold-start
 # on every PDF generation.
 _browser = None
-_browser_lock = asyncio.Lock()
+_browser_lock = None
 
 
 async def _get_browser():
     """Get or create a shared Playwright browser instance."""
-    global _browser
+    global _browser, _browser_lock
     if _browser and _browser.is_connected():
         return _browser
+
+    if _browser_lock is None:
+        _browser_lock = asyncio.Lock()
 
     async with _browser_lock:
         # Double-check after acquiring lock

@@ -36,12 +36,13 @@ async def verify_password_async(plain_password: str, hashed_password: str) -> bo
     return await run_blocking(verify_password, plain_password, hashed_password)
 
 
-def create_access_token(user_id: str, email: str) -> str:
+def create_access_token(user_id: str, email: str, role: str = "user") -> str:
     """Create a signed JWT access token with userId and email in payload."""
     expire = datetime.now(timezone.utc) + timedelta(hours=settings.JWT_EXPIRY_HOURS)
     payload = {
         "sub": user_id,
         "email": email,
+        "role": role,
         "type": "access",
         "exp": expire,
         "iat": datetime.now(timezone.utc),

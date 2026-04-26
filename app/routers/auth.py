@@ -2,6 +2,8 @@
 Authentication router: signup and login with rate limiting.
 """
 
+from __future__ import annotations
+
 from fastapi import APIRouter, HTTPException, status, Request
 from app.models.user import UserSignup, UserLogin, TokenResponse, UserResponse, RefreshTokenRequest, RefreshTokenResponse
 from app.services.auth_service import hash_password_async, verify_password_async, create_access_token, create_refresh_token, decode_jwt
@@ -17,6 +19,13 @@ import structlog
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+
+
+def _role_for_email(email: str, existing_role: str | None = None) -> str:
+    """Resolve a user's role, allowing env-based admin bootstrap."""
+    if email.lower() in settings.ADMIN_EMAILS:
+        return "admin"
+    return existing_role or "user"
 
 
 @router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -37,9 +46,11 @@ async def signup(request: Request, body: UserSignup):
         )
 
     # Create user document
+    role = _role_for_email(email)
     user_doc = {
         "email": email,
         "passwordHash": await hash_password_async(body.password),
+        "role": role,
         "createdAt": datetime.now(timezone.utc),
     }
     result = await db.users.insert_one(user_doc)
@@ -48,12 +59,12 @@ async def signup(request: Request, body: UserSignup):
     logger.info("user_created", user_id=user_id, email=email)
 
     # Issue JWT
-    access_token = create_access_token(user_id, email)
+    access_token = create_access_token(user_id, email, role)
     refresh_token = create_refresh_token(user_id)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        user=UserResponse(id=user_id, email=email),
+        user=UserResponse(id=user_id, email=email, role=role),
     )
 
 
@@ -74,7 +85,11 @@ async def login(request: Request, body: UserLogin):
         )
 
     user_id = str(user["_id"])
-    access_token = create_access_token(user_id, email)
+    role = _role_for_email(email, user.get("role", "user"))
+    if role != user.get("role"):
+        await db.users.update_one({"_id": user["_id"]}, {"$set": {"role": role}})
+
+    access_token = create_access_token(user_id, email, role)
     refresh_token = create_refresh_token(user_id)
 
     logger.info("user_logged_in", user_id=user_id)
@@ -82,7 +97,7 @@ async def login(request: Request, body: UserLogin):
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        user=UserResponse(id=user_id, email=email),
+        user=UserResponse(id=user_id, email=email, role=role),
     )
 
 
@@ -110,8 +125,11 @@ async def refresh_token_endpoint(request: Request, body: RefreshTokenRequest):
         )
         
     email = user["email"]
+    role = _role_for_email(email, user.get("role", "user"))
+    if role != user.get("role"):
+        await db.users.update_one({"_id": user["_id"]}, {"$set": {"role": role}})
     
-    new_access_token = create_access_token(user_id, email)
+    new_access_token = create_access_token(user_id, email, role)
     new_refresh_token = create_refresh_token(user_id)
     
     logger.info("token_refreshed", user_id=user_id)

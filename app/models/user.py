@@ -21,6 +21,7 @@ class UserResponse(BaseModel):
     """Public user info returned in responses."""
     id: str
     email: str
+    role: str = "user"
 
 
 class TokenResponse(BaseModel):

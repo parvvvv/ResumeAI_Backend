@@ -28,10 +28,15 @@ async def connect_db() -> None:
 
     # Create indexes for performance and uniqueness
     await db.users.create_index("email", unique=True)
+    await db.users.create_index("createdAt")
+    await db.users.create_index("role")
     await db.base_resumes.create_index("userId")
+    await db.base_resumes.create_index("createdAt")
     await db.base_resumes.create_index([("userId", ASCENDING), ("createdAt", DESCENDING)])
     await db.generated_resumes.create_index("userId")
     await db.generated_resumes.create_index("baseResumeId")
+    await db.generated_resumes.create_index("createdAt")
+    await db.generated_resumes.create_index("pdfStatus")
     await db.generated_resumes.create_index([("userId", ASCENDING), ("createdAt", DESCENDING)])
     await db.generated_resumes.create_index([("userId", ASCENDING), ("baseResumeId", ASCENDING)])
 
