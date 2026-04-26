@@ -5,13 +5,18 @@ Uses Chromium's native PDF engine for fast, high-quality PDF rendering.
 Includes adaptive font-shrinking to guarantee single-page output.
 """
 
+from __future__ import annotations
+
 import asyncio
 import time
 import re
 from pathlib import Path
+from typing import Optional, Tuple
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 import structlog
 from app.runtime import get_runtime
+from app.models.template import TemplateResolverResult
+from app.services.template_service import resolve_template
 
 logger = structlog.get_logger()
 
@@ -224,3 +229,81 @@ async def generate_pdf(resume_data: dict, template_name: str = "modern") -> byte
         elapsed = round((time.perf_counter() - t_start) * 1000)
         logger.info("pdf_generated_clipped", size_kb=len(pdf_bytes) // 1024, elapsed_ms=elapsed)
         return pdf_bytes
+
+
+async def generate_pdf_for_template(
+    resume_data: dict,
+    template: TemplateResolverResult,
+) -> bytes:
+    """Render resume data using a resolved template record and convert to PDF bytes."""
+    runtime = get_runtime()
+    async with runtime.pdf_semaphore:
+        t_start = time.perf_counter()
+        logger.info("pdf_render_started", template_key=template.templateKey, template_source=template.source)
+
+        html_content = _jinja_env.from_string(template.htmlContent).render(
+            resume=resume_data,
+            extras={},
+            templateMeta={"title": template.title, "templateKey": template.templateKey},
+        )
+
+        page_count, pdf_bytes = await _count_pages_playwright(html_content)
+        elapsed = round((time.perf_counter() - t_start) * 1000)
+
+        if page_count <= 1:
+            logger.info(
+                "pdf_render_finished",
+                template_key=template.templateKey,
+                size_kb=len(pdf_bytes) // 1024,
+                pages=page_count,
+                final_scale=1.0,
+                elapsed_ms=elapsed,
+            )
+            return pdf_bytes
+
+        lo, hi = 0.70, 0.95
+        best_pdf: Optional[bytes] = None
+        best_scale = lo
+        attempts = 0
+
+        while hi - lo > 0.03:
+            attempts += 1
+            mid = round((lo + hi) / 2, 3)
+            current_html = _shrink_font_in_html(html_content, mid)
+            page_count, pdf_bytes = await _count_pages_playwright(current_html)
+            logger.info("pdf_shrinking", template_key=template.templateKey, scale=mid, pages=page_count, attempt=attempts)
+            if page_count <= 1:
+                best_pdf = pdf_bytes
+                best_scale = mid
+                lo = mid
+            else:
+                hi = mid
+
+        elapsed = round((time.perf_counter() - t_start) * 1000)
+        if best_pdf is not None:
+            logger.info(
+                "pdf_render_finished",
+                template_key=template.templateKey,
+                size_kb=len(best_pdf) // 1024,
+                final_scale=best_scale,
+                attempts=attempts,
+                elapsed_ms=elapsed,
+            )
+            return best_pdf
+
+        logger.warning("pdf_min_scale_reached", template_key=template.templateKey, scale=0.70)
+        final_html = _shrink_font_in_html(html_content, 0.70)
+        _, pdf_bytes = await _count_pages_playwright(final_html)
+        logger.info("pdf_render_finished", template_key=template.templateKey, size_kb=len(pdf_bytes) // 1024, elapsed_ms=elapsed)
+        return pdf_bytes
+
+
+async def generate_pdf_from_resolved_template(
+    resume_data: dict,
+    template_id: Optional[str] = None,
+    template_name: str = "modern",
+) -> Tuple[bytes, TemplateResolverResult]:
+    """Resolve a template by id or legacy name, then generate the PDF bytes."""
+    template = await resolve_template(template_id=template_id, template_name=template_name)
+    pdf_bytes = await generate_pdf_for_template(resume_data, template)
+    return pdf_bytes, template

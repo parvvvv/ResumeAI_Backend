@@ -38,6 +38,7 @@ class Settings:
     BCRYPT_ROUNDS: int = 12
     MIN_PASSWORD_LENGTH: int = 8
     ADMIN_EMAILS: list = []
+    ENABLE_TEMPLATE_PLATFORM: bool = False
 
     # --- CORS ---
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -69,6 +70,10 @@ class Settings:
     CHAT_CONCURRENCY: int = int(os.getenv("CHAT_CONCURRENCY", "4"))
     PDF_RENDER_CONCURRENCY: int = int(os.getenv("PDF_RENDER_CONCURRENCY", "2"))
     BLOCKING_IO_CONCURRENCY: int = int(os.getenv("BLOCKING_IO_CONCURRENCY", "4"))
+    TEMPLATE_GEN_CONCURRENCY: int = int(os.getenv("TEMPLATE_GEN_CONCURRENCY", "2"))
+
+    # --- Feature flags ---
+    ENABLE_PUBLIC_CATALOG: bool = False
 
     def __init__(self) -> None:
         # Ensure upload directories exist
@@ -86,6 +91,8 @@ class Settings:
             for email in raw_admin_emails.split(",")
             if email.strip()
         ]
+        self.ENABLE_TEMPLATE_PLATFORM = os.getenv("ENABLE_TEMPLATE_PLATFORM", "false").lower() == "true"
+        self.ENABLE_PUBLIC_CATALOG = os.getenv("ENABLE_PUBLIC_CATALOG", "false").lower() == "true"
 
         # Warn about insecure defaults
         if self.JWT_SECRET == "CHANGE_ME_IN_PRODUCTION":

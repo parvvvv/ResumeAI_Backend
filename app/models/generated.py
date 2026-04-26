@@ -16,7 +16,8 @@ class GenerateResumeRequest(BaseModel):
 class GeneratePDFRequest(BaseModel):
     """Request to generate a PDF from a resume."""
     resumeId: str
-    templateName: str = Field(default="modern", pattern="^(modern|ats)$")
+    templateId: Optional[str] = None
+    templateName: str = Field(default="modern")
     isGenerated: bool = Field(
         default=True,
         description="True if resumeId refers to a generated resume, False for base resume",

@@ -39,12 +39,46 @@ async def connect_db() -> None:
     await db.generated_resumes.create_index("pdfStatus")
     await db.generated_resumes.create_index([("userId", ASCENDING), ("createdAt", DESCENDING)])
     await db.generated_resumes.create_index([("userId", ASCENDING), ("baseResumeId", ASCENDING)])
+    await db.templates.create_index("ownerUserId")
+    await db.templates.create_index("visibility")
+    await db.templates.create_index("status")
+    await db.templates.create_index("sourceType")
+    await db.templates.create_index("templateKey", unique=True, sparse=True)
+    await db.templates.create_index("slug", sparse=True)
+    await db.templates.create_index("createdAt")
+    await db.templates.create_index([("ownerUserId", ASCENDING), ("createdAt", DESCENDING)])
+    await db.template_jobs.create_index("ownerUserId")
+    await db.template_jobs.create_index("status")
+    await db.template_jobs.create_index("createdAt")
+    await db.resume_template_sessions.create_index("userId")
+    await db.resume_template_sessions.create_index("resumeId")
+    await db.resume_template_sessions.create_index("templateId")
+    await db.resume_template_sessions.create_index("updatedAt")
+    await db.resume_template_sessions.create_index(
+        [("userId", ASCENDING), ("resumeId", ASCENDING), ("templateId", ASCENDING)],
+        unique=True,
+    )
 
     # Jobs collection with TTL index (auto-delete after 24 hours)
     await db.jobs.create_index("createdAt", expireAfterSeconds=86400)
     await db.jobs.create_index("job_id", unique=True)
     await db.jobs.create_index("userId")
     await db.jobs.create_index([("userId", ASCENDING), ("profile", ASCENDING), ("createdAt", DESCENDING)])
+
+    # Template favorites
+    await db.template_favorites.create_index("templateId")
+    await db.template_favorites.create_index("userId")
+    await db.template_favorites.create_index(
+        [("templateId", ASCENDING), ("userId", ASCENDING)],
+        unique=True,
+    )
+
+    # Template jobs — compound indexes for efficient queries
+    await db.template_jobs.create_index([("ownerUserId", ASCENDING), ("status", ASCENDING)])
+    await db.template_jobs.create_index([("status", ASCENDING), ("createdAt", DESCENDING)])
+
+    # Templates — compound index for public catalog queries
+    await db.templates.create_index([("visibility", ASCENDING), ("status", ASCENDING)])
 
 
 async def disconnect_db() -> None:

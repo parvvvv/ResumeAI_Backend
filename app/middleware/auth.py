@@ -3,10 +3,15 @@ JWT authentication middleware.
 Use as a FastAPI dependency to protect routes.
 """
 
+from __future__ import annotations
+
+from typing import Optional
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
 from app.services.auth_service import decode_jwt
+from app.config import settings
 
 _bearer_scheme = HTTPBearer()
 
@@ -46,4 +51,31 @@ async def get_current_admin_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
         )
+    return payload
+
+
+def is_template_platform_admin_email(email: Optional[str]) -> bool:
+    """Check whether an email is allowed to access the template platform."""
+    if not email:
+        return False
+    allowed_emails = set(settings.ADMIN_EMAILS or [])
+    return email.lower() in allowed_emails
+
+
+async def get_template_platform_admin(
+    payload: dict = Depends(get_current_user),
+) -> dict:
+    """Require template platform access for the rollout admin and feature flag."""
+    if not settings.ENABLE_TEMPLATE_PLATFORM:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Template platform is not enabled.",
+        )
+
+    if not is_template_platform_admin_email(payload.get("email")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Template platform access required.",
+        )
+
     return payload

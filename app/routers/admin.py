@@ -15,6 +15,13 @@ from app.config import settings
 from app.database import get_database
 from app.middleware.auth import get_current_admin_user
 from app.middleware.rate_limit import limiter
+from app.models.template import AdminTemplateActionRequest
+from app.services.template_service import (
+    admin_approve_template,
+    admin_archive_template,
+    admin_list_templates,
+    admin_reject_template,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -257,3 +264,58 @@ async def get_admin_activity(
         "tailoredCreated": await collect(db.generated_resumes, "createdAt"),
         "pdfsCompleted": pdf_series,
     }
+
+
+# ---------------------------------------------------------------------------
+# Admin Template Governance (Phase 5)
+# ---------------------------------------------------------------------------
+
+@router.get("/templates")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
+async def admin_list_templates_endpoint(
+    request: Request,
+    status_filter: str = Query(default=None, alias="status"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    admin: dict = Depends(get_current_admin_user),
+):
+    """List all templates with optional status filter (pending_review, published, archived, draft)."""
+    del admin
+    return await admin_list_templates(filter_status=status_filter, page=page, limit=limit)
+
+
+@router.post("/templates/{template_id}/approve")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
+async def admin_approve_endpoint(
+    request: Request,
+    template_id: str,
+    admin: dict = Depends(get_current_admin_user),
+):
+    """Approve a template for the public catalog."""
+    del admin
+    return await admin_approve_template(template_id)
+
+
+@router.post("/templates/{template_id}/reject")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
+async def admin_reject_endpoint(
+    request: Request,
+    template_id: str,
+    body: AdminTemplateActionRequest = AdminTemplateActionRequest(),
+    admin: dict = Depends(get_current_admin_user),
+):
+    """Reject a template with optional reason."""
+    del admin
+    return await admin_reject_template(template_id, reason=body.reason)
+
+
+@router.post("/templates/{template_id}/archive")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
+async def admin_archive_endpoint(
+    request: Request,
+    template_id: str,
+    admin: dict = Depends(get_current_admin_user),
+):
+    """Archive a template."""
+    del admin
+    return await admin_archive_template(template_id)
