@@ -183,9 +183,9 @@ async def seed_system_templates() -> None:
         )
 
 
-class _PermissiveDict(dict):
+class PermissiveDict(dict):
     """A dict subclass that supports dot-notation access and returns
-    empty _PermissiveDict for any missing key — so chains like
+    empty PermissiveDict for any missing key — so chains like
     resume.personalInfo.fullName never crash, they just render as ''.
 
     IMPORTANT: Uses __getattribute__ (not __getattr__) so that data keys
@@ -198,19 +198,20 @@ class _PermissiveDict(dict):
             return super().__getattribute__(key)
         # Data keys take priority over dict methods
         if dict.__contains__(self, key):
-            return _make_permissive(dict.__getitem__(self, key))
+            return make_permissive(dict.__getitem__(self, key))
         # Fall back to dict methods (keys, values, get, etc.)
         try:
             return super().__getattribute__(key)
         except AttributeError:
-            return _PermissiveDict()
+            return PermissiveDict()
 
     def __str__(self):
         # When Jinja renders {{ resume.personalInfo.fullName }} and it's
-        # an empty _PermissiveDict, we want it to render as "" not "{}".
-        if len(self) == 0:
-            return ""
-        return super().__str__()
+        # an empty PermissiveDict, we want it to render as "" not "{}".
+        return "" if not self else super().__str__()
+
+    def __repr__(self):
+        return super().__repr__()
 
     def __bool__(self):
         return len(self) > 0
@@ -223,14 +224,14 @@ class _PermissiveDict(dict):
         return self.__str__()
 
 
-def _make_permissive(obj):
+def make_permissive(obj):
     """Recursively wrap dicts/lists so nested attribute access never crashes."""
-    if isinstance(obj, _PermissiveDict):
+    if isinstance(obj, PermissiveDict):
         return obj
     if isinstance(obj, dict):
-        return _PermissiveDict({k: _make_permissive(v) for k, v in obj.items()})
+        return PermissiveDict({k: make_permissive(v) for k, v in obj.items()})
     if isinstance(obj, list):
-        return [_make_permissive(item) for item in obj]
+        return [make_permissive(item) for item in obj]
     return obj
 
 
@@ -248,9 +249,9 @@ def render_template_preview(html_content: str, preview_data: TemplatePreviewPayl
         # rather than crashing the entire preview.
         template = _template_env(strict=False).from_string(html_content)
         html = template.render(
-            resume=_make_permissive(resume_data),
-            extras=_make_permissive(extras_data),
-            templateMeta=_PermissiveDict(),
+            resume=make_permissive(resume_data),
+            extras=make_permissive(extras_data),
+            templateMeta=PermissiveDict(),
         )
         return html, warnings
     except TemplateError as exc:

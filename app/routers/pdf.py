@@ -219,12 +219,10 @@ async def list_available_templates(
         ]
     }
 
-    # If template platform is enabled and user is admin, also include their own
+    # If template platform is enabled, also include their own and shared ones
     if settings.ENABLE_TEMPLATE_PLATFORM:
-        user_email = payload.get("email", "")
-        if user_email and user_email.lower() in [e.lower() for e in settings.ADMIN_EMAILS]:
-            query["$or"].append({"ownerUserId": payload["sub"]})
-            query["$or"].append({"sharedWithUserIds": payload["sub"]})
+        query["$or"].append({"ownerUserId": payload["sub"]})
+        query["$or"].append({"sharedWithUserIds": payload["sub"]})
 
     docs = await db.templates.find(query).sort("createdAt", -1).to_list(length=50)
 

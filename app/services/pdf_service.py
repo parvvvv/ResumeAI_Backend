@@ -16,7 +16,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 import structlog
 from app.runtime import get_runtime
 from app.models.template import TemplateResolverResult
-from app.services.template_service import resolve_template
+from app.services.template_service import resolve_template, make_permissive, PermissiveDict
 
 logger = structlog.get_logger()
 
@@ -92,13 +92,14 @@ def _shrink_font_in_html(html_content: str, scale: float) -> str:
 
     # Scale all pt values (font sizes)
     result = _RE_PT_VALUES.sub(scale_pt, html_content)
-    # Scale px values for margins/padding (only in <style> block)
-    style_match = _RE_STYLE_BLOCK.search(result)
-    if style_match:
-        style_content = style_match.group(2)
-        scaled_style = _RE_PX_VALUES.sub(scale_px, style_content)
-        result = result[:style_match.start(2)] + scaled_style + result[style_match.end(2):]
 
+    # Scale px values for margins/padding/font-size across ALL <style> blocks
+    def scale_style_block(match):
+        prefix, content, suffix = match.groups()
+        scaled_content = _RE_PX_VALUES.sub(scale_px, content)
+        return f"{prefix}{scaled_content}{suffix}"
+
+    result = _RE_STYLE_BLOCK.sub(scale_style_block, result)
     return result
 
 
@@ -135,7 +136,66 @@ async def _render_pdf_with_playwright(html_content: str) -> bytes:
         await context.close()
 
 
-async def _count_pages_playwright(html_content: str) -> tuple:
+async def _render_one_page_pdf(html_content: str, template_key: str) -> bytes:
+    """
+    Internal helper to guarantee a single-page PDF by shrinking font sizes
+    if the content exceeds one page. Uses binary search for optimal scale.
+    """
+    t_start = time.perf_counter()
+    
+    # ── First attempt at full scale (1.0) ──────────────────────────────────
+    page_count, pdf_bytes = await _count_pages_playwright(html_content)
+    
+    if page_count <= 1:
+        elapsed = round((time.perf_counter() - t_start) * 1000)
+        logger.info("pdf_render_finished", template_key=template_key, scale=1.0, pages=page_count, elapsed_ms=elapsed)
+        return pdf_bytes
+
+    # ── Binary-search shrink to fit on 1 page ──────────────────────────────
+    # We try scales between 0.65 and 0.95. Anything below 0.65 is usually unreadable.
+    lo, hi = 0.65, 0.95
+    best_pdf: Optional[bytes] = None
+    best_scale = lo
+    attempts = 0
+
+    while hi - lo > 0.02:
+        attempts += 1
+        mid = round((lo + hi) / 2, 3)
+        current_html = _shrink_font_in_html(html_content, mid)
+        page_count, pdf_bytes = await _count_pages_playwright(current_html)
+        
+        logger.info("pdf_shrinking", template_key=template_key, scale=mid, pages=page_count, attempt=attempts)
+
+        if page_count <= 1:
+            best_pdf = pdf_bytes
+            best_scale = mid
+            lo = mid   # Try to shrink less (larger font)
+        else:
+            hi = mid   # Still too long, must shrink more
+
+    elapsed = round((time.perf_counter() - t_start) * 1000)
+    
+    if best_pdf is not None:
+        logger.info(
+            "pdf_render_finished",
+            template_key=template_key,
+            size_kb=len(best_pdf) // 1024,
+            final_scale=best_scale,
+            attempts=attempts,
+            elapsed_ms=elapsed,
+        )
+        return best_pdf
+
+    # Fallback: render at minimum scale (0.65)
+    logger.warning("pdf_min_scale_reached", template_key=template_key, scale=lo)
+    final_html = _shrink_font_in_html(html_content, lo)
+    _, pdf_bytes = await _count_pages_playwright(final_html)
+    
+    logger.info("pdf_render_finished_clipped", template_key=template_key, scale=lo, elapsed_ms=elapsed)
+    return pdf_bytes
+
+
+async def _count_pages_playwright(html_content: str) -> Tuple[int, bytes]:
     """
     Render HTML to PDF and return (page_count, pdf_bytes).
     Playwright doesn't expose page count directly, so we check via PDF size
@@ -165,70 +225,15 @@ async def generate_pdf(resume_data: dict, template_name: str = "modern") -> byte
     """
     runtime = get_runtime()
     async with runtime.pdf_semaphore:
-        t_start = time.perf_counter()
-
         template_file = f"{template_name}.html"
         template = _jinja_env.get_template(template_file)
-        html_content = template.render(resume=resume_data)
-
-        logger.info("pdf_generating", template=template_name)
-
-        # ── First attempt at full scale ──────────────────────────────────────
-        page_count, pdf_bytes = await _count_pages_playwright(html_content)
-
-        elapsed = round((time.perf_counter() - t_start) * 1000)
-
-        if page_count <= 1:
-            logger.info(
-                "pdf_generated",
-                size_kb=len(pdf_bytes) // 1024,
-                pages=page_count,
-                final_scale=1.0,
-                elapsed_ms=elapsed,
-            )
-            return pdf_bytes
-
-        # ── Binary-search shrink to fit on 1 page ────────────────────────────
-        lo, hi = 0.70, 0.95
-        best_pdf = None
-        best_scale = lo
-        attempts = 0
-
-        while hi - lo > 0.03:
-            attempts += 1
-            mid = round((lo + hi) / 2, 3)
-            current_html = _shrink_font_in_html(html_content, mid)
-            page_count, pdf_bytes = await _count_pages_playwright(current_html)
-
-            logger.info("pdf_shrinking", scale=mid, pages=page_count, attempt=attempts)
-
-            if page_count <= 1:
-                best_pdf = pdf_bytes
-                best_scale = mid
-                lo = mid   # Try less shrinking
-            else:
-                hi = mid   # Need more shrinking
-
-        elapsed = round((time.perf_counter() - t_start) * 1000)
-
-        if best_pdf is not None:
-            logger.info(
-                "pdf_generated",
-                size_kb=len(best_pdf) // 1024,
-                final_scale=best_scale,
-                attempts=attempts,
-                elapsed_ms=elapsed,
-            )
-            return best_pdf
-
-        # Fallback: render at minimum scale
-        logger.warning("pdf_min_scale_reached", scale=0.70)
-        final_html = _shrink_font_in_html(html_content, 0.70)
-        _, pdf_bytes = await _count_pages_playwright(final_html)
-
-        elapsed = round((time.perf_counter() - t_start) * 1000)
-        logger.info("pdf_generated_clipped", size_kb=len(pdf_bytes) // 1024, elapsed_ms=elapsed)
-        return pdf_bytes
+        html_content = template.render(
+            resume=make_permissive(resume_data),
+            extras=PermissiveDict(),
+            templateMeta=PermissiveDict(title=template_name, templateKey=template_name),
+        )
+        
+        return await _render_one_page_pdf(html_content, template_name)
 
 
 async def generate_pdf_for_template(
@@ -238,64 +243,13 @@ async def generate_pdf_for_template(
     """Render resume data using a resolved template record and convert to PDF bytes."""
     runtime = get_runtime()
     async with runtime.pdf_semaphore:
-        t_start = time.perf_counter()
-        logger.info("pdf_render_started", template_key=template.templateKey, template_source=template.source)
-
         html_content = _jinja_env.from_string(template.htmlContent).render(
-            resume=resume_data,
-            extras={},
-            templateMeta={"title": template.title, "templateKey": template.templateKey},
+            resume=make_permissive(resume_data),
+            extras=PermissiveDict(),
+            templateMeta=PermissiveDict(title=template.title, templateKey=template.templateKey),
         )
 
-        page_count, pdf_bytes = await _count_pages_playwright(html_content)
-        elapsed = round((time.perf_counter() - t_start) * 1000)
-
-        if page_count <= 1:
-            logger.info(
-                "pdf_render_finished",
-                template_key=template.templateKey,
-                size_kb=len(pdf_bytes) // 1024,
-                pages=page_count,
-                final_scale=1.0,
-                elapsed_ms=elapsed,
-            )
-            return pdf_bytes
-
-        lo, hi = 0.70, 0.95
-        best_pdf: Optional[bytes] = None
-        best_scale = lo
-        attempts = 0
-
-        while hi - lo > 0.03:
-            attempts += 1
-            mid = round((lo + hi) / 2, 3)
-            current_html = _shrink_font_in_html(html_content, mid)
-            page_count, pdf_bytes = await _count_pages_playwright(current_html)
-            logger.info("pdf_shrinking", template_key=template.templateKey, scale=mid, pages=page_count, attempt=attempts)
-            if page_count <= 1:
-                best_pdf = pdf_bytes
-                best_scale = mid
-                lo = mid
-            else:
-                hi = mid
-
-        elapsed = round((time.perf_counter() - t_start) * 1000)
-        if best_pdf is not None:
-            logger.info(
-                "pdf_render_finished",
-                template_key=template.templateKey,
-                size_kb=len(best_pdf) // 1024,
-                final_scale=best_scale,
-                attempts=attempts,
-                elapsed_ms=elapsed,
-            )
-            return best_pdf
-
-        logger.warning("pdf_min_scale_reached", template_key=template.templateKey, scale=0.70)
-        final_html = _shrink_font_in_html(html_content, 0.70)
-        _, pdf_bytes = await _count_pages_playwright(final_html)
-        logger.info("pdf_render_finished", template_key=template.templateKey, size_kb=len(pdf_bytes) // 1024, elapsed_ms=elapsed)
-        return pdf_bytes
+        return await _render_one_page_pdf(html_content, template.templateKey)
 
 
 async def generate_pdf_from_resolved_template(
