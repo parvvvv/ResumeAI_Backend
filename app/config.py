@@ -39,6 +39,7 @@ class Settings:
     MIN_PASSWORD_LENGTH: int = 8
     ADMIN_EMAILS: list = []
     ENABLE_TEMPLATE_PLATFORM: bool = False
+    ADMIN_API_KEY: str = ""
 
     # --- CORS ---
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -93,6 +94,7 @@ class Settings:
         ]
         self.ENABLE_TEMPLATE_PLATFORM = os.getenv("ENABLE_TEMPLATE_PLATFORM", "false").lower() == "true"
         self.ENABLE_PUBLIC_CATALOG = os.getenv("ENABLE_PUBLIC_CATALOG", "false").lower() == "true"
+        self.ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 
         # Warn about insecure defaults
         if self.JWT_SECRET == "CHANGE_ME_IN_PRODUCTION":

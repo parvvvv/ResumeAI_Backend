@@ -22,6 +22,9 @@ class UserResponse(BaseModel):
     id: str
     email: str
     role: str = "user"
+    parsedCount: int = 0
+    maxParses: int = 10
+    bypassAttemptsLeft: int = 3
 
 
 class TokenResponse(BaseModel):

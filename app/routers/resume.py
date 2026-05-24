@@ -48,6 +48,35 @@ async def upload_and_parse(
     Upload a PDF resume, extract text, parse with AI, and store as base resume.
     Returns the parsed structured JSON.
     """
+    db = get_database()
+
+    # Retrieve user and validate roles/quotas
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+
+    role = user.get("role", "user")
+    if role != "admin":
+        # 1. Enforce max 1 original resume
+        base_resume_count = await db.base_resumes.count_documents({"userId": user_id})
+        if base_resume_count >= 1:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Standard accounts are restricted to one original resume. Please upgrade or delete your existing resume to upload a new one.",
+            )
+
+        # 2. Enforce parsing limit (default 10)
+        parsed_count = user.get("parsedCount", 0)
+        max_parses = user.get("maxParses", 10)
+        if parsed_count >= max_parses:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"You have reached your limit of {max_parses} parsed resumes. Please upgrade your subscription to parse more resumes.",
+            )
+
     # Validate file
     content = await validate_pdf_upload(file)
 
@@ -111,6 +140,12 @@ async def upload_and_parse(
         "updatedAt": datetime.now(timezone.utc),
     }
     result = await db.base_resumes.insert_one(doc)
+
+    # Increment parsed count for the user on successful parse
+    await db.users.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$inc": {"parsedCount": 1}}
+    )
 
     logger.info("resume_uploaded", user_id=user_id, resume_id=str(result.inserted_id))
 

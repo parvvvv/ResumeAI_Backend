@@ -274,7 +274,7 @@ def _build_location(job: dict) -> str:
     return ", ".join(parts) if parts else "Remote"
 
 
-async def get_recommendations(user_id: str, db) -> dict:
+async def get_recommendations(user_id: str, db, bypass_cache: bool = False) -> dict:
     """
     Main orchestrator: reads user's generated resumes from DB,
     classifies profile, builds query, fetches and formats jobs.
@@ -289,7 +289,7 @@ async def get_recommendations(user_id: str, db) -> dict:
     ).sort("createdAt", -1).to_list(length=50)
 
     if not generated:
-        return {"jobs": [], "profile": None, "query_used": ""}
+        return {"jobs": [], "profile": None, "query_used": "", "is_duplicate": False}
 
     # 2. Collect summaries (fallback to jobDescription snippet)
     summaries = []
@@ -300,36 +300,53 @@ async def get_recommendations(user_id: str, db) -> dict:
             summaries.append(doc["jobDescription"][:200])
 
     if not summaries:
-        return {"jobs": [], "profile": None, "query_used": ""}
+        return {"jobs": [], "profile": None, "query_used": "", "is_duplicate": False}
 
     # 3. Classify profile
     profile = classify_user_profile(summaries)
 
-    # 4. Check for cached jobs in MongoDB for this profile
-    cached_jobs = await db.jobs.find(
-        {"userId": user_id, "profile": profile},
-        {"_id": 0}
-    ).sort("createdAt", -1).to_list(length=50)
+    # 4. Check for cached jobs in MongoDB for this profile (unless bypassed)
+    cached_jobs = []
+    if not bypass_cache:
+        cached_jobs = await db.jobs.find(
+            {"userId": user_id, "profile": profile},
+            {"_id": 0}
+        ).sort("createdAt", -1).to_list(length=50)
 
-    if cached_jobs:
-        logger.info(
-            "jobs_cache_hit",
-            user_id=user_id,
-            profile=profile,
-            cached_count=len(cached_jobs),
-        )
-        jobs = [_format_cached_job(j) for j in cached_jobs]
-        return {
-            "jobs": jobs,
-            "profile": profile,
-            "query_used": cached_jobs[0].get("query_used", ""),
-        }
+        if cached_jobs:
+            logger.info(
+                "jobs_cache_hit",
+                user_id=user_id,
+                profile=profile,
+                cached_count=len(cached_jobs),
+            )
+            jobs = [_format_cached_job(j) for j in cached_jobs]
+            return {
+                "jobs": jobs,
+                "profile": profile,
+                "query_used": cached_jobs[0].get("query_used", ""),
+                "is_duplicate": False,
+            }
+
+    # Fetch cached job IDs for duplicate check when bypassing
+    cached_job_ids = set()
+    existing_cached = await db.jobs.find(
+        {"userId": user_id, "profile": profile},
+        {"job_id": 1, "_id": 0}
+    ).to_list(length=100)
+    cached_job_ids = {doc["job_id"] for doc in existing_cached if doc.get("job_id")}
 
     # 5. Build search query
     query = build_search_query(profile, summaries)
 
     # 6. Fetch jobs from JSearch API
     raw_jobs = await fetch_jobs(query, settings.JSEARCH_API_KEYS)
+
+    # Detect duplicates
+    new_job_ids = {j.get("job_id") for j in raw_jobs if j.get("job_id")}
+    is_duplicate = False
+    if bypass_cache and cached_job_ids and new_job_ids == cached_job_ids:
+        is_duplicate = True
 
     # 7. Format for frontend and save to MongoDB
     jobs = []
@@ -360,12 +377,25 @@ async def get_recommendations(user_id: str, db) -> dict:
             "createdAt": datetime.now(timezone.utc),
         })
 
-    # Bulk insert jobs (ignore duplicates)
-    if job_docs:
+    # Clear old cache if bypassing and we got fresh (non-duplicate) content
+    if bypass_cache and not is_duplicate:
+        await db.jobs.delete_many({"userId": user_id, "profile": profile})
+
+    # Bulk insert new jobs (ignore duplicates)
+    if job_docs and not is_duplicate:
         try:
             await db.jobs.insert_many(job_docs, ordered=False)
         except Exception as e:
             logger.warning("jobs_insert_failed", error=str(e))
+
+    # If it was duplicate, load existing cached jobs for the frontend to preserve them
+    if is_duplicate:
+        logger.info("jobs_refresh_duplicate_detected", user_id=user_id)
+        cached_all = await db.jobs.find(
+            {"userId": user_id, "profile": profile},
+            {"_id": 0}
+        ).sort("createdAt", -1).to_list(length=50)
+        jobs = [_format_cached_job(j) for j in cached_all]
 
     logger.info(
         "job_recommendations_ready",
@@ -373,12 +403,14 @@ async def get_recommendations(user_id: str, db) -> dict:
         profile=profile,
         query=query,
         job_count=len(jobs),
+        is_duplicate=is_duplicate,
     )
 
     return {
         "jobs": jobs,
         "profile": profile,
         "query_used": query,
+        "is_duplicate": is_duplicate,
     }
 
 

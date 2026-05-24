@@ -32,6 +32,14 @@ def _role_for_email(email: str, existing_role: str | None = None) -> str:
 @limiter.limit(settings.RATE_LIMIT_AUTH)
 async def signup(request: Request, body: UserSignup):
     """Register a new user and return a JWT."""
+    # Check Admin API Key in header to restrict register API on frontend
+    admin_key = request.headers.get("X-Admin-API-Key")
+    if not settings.ADMIN_API_KEY or admin_key != settings.ADMIN_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is restricted to administrators. A valid X-Admin-API-Key header is required.",
+        )
+
     db = get_database()
 
     # Sanitize email
@@ -51,6 +59,10 @@ async def signup(request: Request, body: UserSignup):
         "email": email,
         "passwordHash": await hash_password_async(body.password),
         "role": role,
+        "parsedCount": 0,
+        "maxParses": 10,
+        "bypassAttemptsLeft": 3,
+        "lastBypassDate": datetime.now(timezone.utc).date().isoformat(),
         "createdAt": datetime.now(timezone.utc),
     }
     result = await db.users.insert_one(user_doc)
@@ -64,7 +76,14 @@ async def signup(request: Request, body: UserSignup):
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        user=UserResponse(id=user_id, email=email, role=role),
+        user=UserResponse(
+            id=user_id,
+            email=email,
+            role=role,
+            parsedCount=0,
+            maxParses=10,
+            bypassAttemptsLeft=3,
+        ),
     )
 
 
@@ -86,8 +105,25 @@ async def login(request: Request, body: UserLogin):
 
     user_id = str(user["_id"])
     role = _role_for_email(email, user.get("role", "user"))
+    
+    # Check and perform daily attempts reset on login
+    current_date_str = datetime.now(timezone.utc).date().isoformat()
+    last_bypass_date = user.get("lastBypassDate", "")
+    bypass_attempts = user.get("bypassAttemptsLeft", 3)
+    parsed_count = user.get("parsedCount", 0)
+    max_parses = user.get("maxParses", 10)
+    
+    update_fields = {}
     if role != user.get("role"):
-        await db.users.update_one({"_id": user["_id"]}, {"$set": {"role": role}})
+        update_fields["role"] = role
+        
+    if current_date_str != last_bypass_date and role != "admin":
+        bypass_attempts = 3
+        update_fields["bypassAttemptsLeft"] = 3
+        update_fields["lastBypassDate"] = current_date_str
+        
+    if update_fields:
+        await db.users.update_one({"_id": user["_id"]}, {"$set": update_fields})
 
     access_token = create_access_token(user_id, email, role)
     refresh_token = create_refresh_token(user_id)
@@ -97,7 +133,14 @@ async def login(request: Request, body: UserLogin):
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        user=UserResponse(id=user_id, email=email, role=role),
+        user=UserResponse(
+            id=user_id,
+            email=email,
+            role=role,
+            parsedCount=parsed_count,
+            maxParses=max_parses,
+            bypassAttemptsLeft=bypass_attempts,
+        ),
     )
 
 

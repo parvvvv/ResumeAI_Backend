@@ -9,11 +9,13 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from math import ceil
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, HTTPException, status
 
 from app.config import settings
 from app.database import get_database
-from app.middleware.auth import get_current_admin_user
+from app.middleware.auth import get_current_admin_user, require_admin_or_api_key
+from bson.objectid import ObjectId
+from pydantic import BaseModel, Field
 from app.middleware.rate_limit import limiter
 from app.models.template import AdminTemplateActionRequest
 from app.services.template_service import (
@@ -319,3 +321,107 @@ async def admin_archive_endpoint(
     """Archive a template."""
     del admin
     return await admin_archive_template(template_id)
+from typing import Optional
+
+
+class MakeAdminRequest(BaseModel):
+    userId: Optional[str] = None
+    email: Optional[str] = None
+
+class UpdateLimitsRequest(BaseModel):
+    userId: Optional[str] = None
+    email: Optional[str] = None
+    maxParses: Optional[int] = Field(None, ge=1)
+    bypassAttemptsLeft: Optional[int] = Field(None, ge=0)
+
+
+@router.post("/make-admin")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
+async def make_user_admin(
+    request: Request,
+    body: MakeAdminRequest,
+    admin_auth: dict = Depends(require_admin_or_api_key),
+):
+    """
+    Promote a user by userId or email to admin.
+    Accessible via admin JWT token or X-Admin-API-Key header.
+    """
+    db = get_database()
+    
+    query = {}
+    if body.userId:
+        try:
+            query["_id"] = ObjectId(body.userId)
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID format.")
+    elif body.email:
+        query["email"] = body.email.lower().strip()
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either userId or email must be provided.",
+        )
+
+    user = await db.users.find_one(query)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"role": "admin"}})
+    return {
+        "message": f"Successfully promoted user {user['email']} to admin.",
+        "userId": str(user["_id"]),
+        "email": user["email"],
+        "role": "admin",
+    }
+
+
+@router.post("/update-limits")
+@limiter.limit(settings.RATE_LIMIT_GENERAL)
+async def update_user_limits(
+    request: Request,
+    body: UpdateLimitsRequest,
+    admin_auth: dict = Depends(require_admin_or_api_key),
+):
+    """
+    Upgrade subscription quotas (maxParses, bypassAttemptsLeft) for a user.
+    Accessible via admin JWT token or X-Admin-API-Key header.
+    """
+    db = get_database()
+
+    query = {}
+    if body.userId:
+        try:
+            query["_id"] = ObjectId(body.userId)
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID format.")
+    elif body.email:
+        query["email"] = body.email.lower().strip()
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either userId or email must be provided.",
+        )
+
+    user = await db.users.find_one(query)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    update_fields = {}
+    if body.maxParses is not None:
+        update_fields["maxParses"] = body.maxParses
+    if body.bypassAttemptsLeft is not None:
+        update_fields["bypassAttemptsLeft"] = body.bypassAttemptsLeft
+
+    if not update_fields:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one limit field (maxParses or bypassAttemptsLeft) must be updated.",
+        )
+
+    await db.users.update_one({"_id": user["_id"]}, {"$set": update_fields})
+    return {
+        "message": f"Successfully updated limits for user {user['email']}.",
+        "userId": str(user["_id"]),
+        "email": user["email"],
+        "updatedLimits": update_fields,
+    }

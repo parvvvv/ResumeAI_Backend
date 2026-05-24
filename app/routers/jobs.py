@@ -24,24 +24,76 @@ class TailorForJobRequest(BaseModel):
     base_resume_id: str
 
 
+from datetime import datetime, timezone
+from fastapi import Query
+
 @router.get("/recommendations")
 @limiter.limit(settings.RATE_LIMIT_JOBS)
 async def recommended_jobs(
     request: Request,
+    bypass_cache: bool = Query(False),
     user_id: str = Depends(get_current_user_id),
 ):
     """
     Get job recommendations based on the user's generated resume profiles.
-    Fetches India-based jobs posted in the last 24 hours from JSearch API.
+    Optionally bypasses the 24-hour cache (limited daily quota for non-admins).
     """
     db = get_database()
-    result = await get_recommendations(user_id, db)
+
+    # Get user to validate quota limits & date reset
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    role = user.get("role", "user")
+    current_date_str = datetime.now(timezone.utc).date().isoformat()
+    last_bypass_date = user.get("lastBypassDate", "")
+    bypass_attempts = user.get("bypassAttemptsLeft", 3)
+
+    # Perform daily calendar reset check
+    if current_date_str != last_bypass_date and role != "admin":
+        bypass_attempts = 3
+        await db.users.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"bypassAttemptsLeft": 3, "lastBypassDate": current_date_str}}
+        )
+
+    # Enforce quota check if they are trying to bypass cache
+    if bypass_cache and role != "admin":
+        if bypass_attempts <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You have exhausted your daily cache bypass attempts (3 refreshes per day max). Please try again tomorrow.",
+            )
+
+    # Call recommendations service
+    result = await get_recommendations(user_id, db, bypass_cache=bypass_cache)
+
+    # Handle quota consumption (skip if it was duplicate or cache hit)
+    is_duplicate = result.get("is_duplicate", False)
+    if bypass_cache and role != "admin":
+        if is_duplicate:
+            # Duplicate, do not decrement. Detail this in message to user
+            result["message"] = "No new jobs found. Refresh attempt was not consumed."
+        else:
+            # Decrement bypass attempt
+            bypass_attempts -= 1
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"bypassAttemptsLeft": bypass_attempts, "lastBypassDate": current_date_str}}
+            )
+            result["message"] = "Refresh successful."
+
+    # Return updated attempts
+    result["bypassAttemptsLeft"] = "unlimited" if role == "admin" else bypass_attempts
 
     logger.info(
         "jobs_recommendations_served",
         user_id=user_id,
         profile=result.get("profile"),
         count=len(result.get("jobs", [])),
+        bypass_cache=bypass_cache,
+        is_duplicate=is_duplicate,
     )
 
     return result
