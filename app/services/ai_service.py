@@ -11,7 +11,7 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 from app.config import settings
-from app.models.resume import ResumeData, TailorResponse
+from app.models.resume import ResumeData
 from app.runtime import run_blocking
 from app.security import sanitize_input
 import structlog
@@ -475,7 +475,7 @@ async def rewrite_experience(base_data: dict, job_description: str, alignment: d
 async def final_polish(base_data: dict, assembled_data: dict, job_description: str, alignment: dict, raw_text_length: int):
     """
     Step 4 of 4: Final quality check, length optimization, and analytics generation.
-    Returns (TailorResponse (the final resume wrapper), analytics object).
+    Returns (ResumeData (the final resume), analytics object).
     """
     # ... logic for char_budget remains the same ...
     char_budget = max(4000, raw_text_length)
@@ -544,7 +544,7 @@ async def final_polish(base_data: dict, assembled_data: dict, job_description: s
 
     logger.error("ai_polish_exhausted_retries", error=str(last_error))
     
-    fallback_resume = TailorResponse(**assembled_data)
+    fallback_resume = ResumeData.model_validate(assembled_data)
     fallback_analytics = {
         "atsScore": alignment.get("atsScore", 60),
         "similarityToOriginal": 80,
