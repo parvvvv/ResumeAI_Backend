@@ -21,6 +21,7 @@ class Settings:
     # --- AI ---
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = "gemini-3-flash-preview"
+    GEMINI_FALLBACK_MODELS: list = []  # populated in __init__ from env
     GEMINI_TIMEOUT_SECONDS: float = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "45"))
     SUPABASE_RPC_TIMEOUT_SECONDS: float = float(os.getenv("SUPABASE_RPC_TIMEOUT_SECONDS", "15"))
     JSEARCH_TIMEOUT_SECONDS: float = float(os.getenv("JSEARCH_TIMEOUT_SECONDS", "15"))
@@ -92,6 +93,14 @@ class Settings:
             for email in raw_admin_emails.split(",")
             if email.strip()
         ]
+
+        # Parse Gemini model + fallback chain from env
+        self.GEMINI_MODEL = os.getenv("GEMINI_MODEL", self.GEMINI_MODEL)
+        raw_fallback = os.getenv("GEMINI_FALLBACK_MODELS", "gemini-2.5-flash,gemini-2.0-flash")
+        self.GEMINI_FALLBACK_MODELS = [
+            m.strip() for m in raw_fallback.split(",") if m.strip()
+        ]
+
         self.ENABLE_TEMPLATE_PLATFORM = os.getenv("ENABLE_TEMPLATE_PLATFORM", "false").lower() == "true"
         self.ENABLE_PUBLIC_CATALOG = os.getenv("ENABLE_PUBLIC_CATALOG", "false").lower() == "true"
         self.ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")

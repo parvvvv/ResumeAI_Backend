@@ -13,19 +13,17 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4
 
-from google import genai
 from google.genai import types
 
 from app.config import settings
 from app.database import get_database
+from app.gemini_client import gemini_generate
 from app.models.template import TemplateSchema, TemplateFieldDefinition
 from app.runtime import run_blocking
 from app.security import sanitize_template_html, validate_jinja_safety
 import structlog
 
 logger = structlog.get_logger()
-
-_client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 
 # ---------------------------------------------------------------------------
@@ -263,8 +261,7 @@ async def detect_and_templatize_html(
             logger.info("template_gen_detect_attempt", attempt=attempt)
 
             response = await run_blocking(
-                _client.models.generate_content,
-                model=settings.GEMINI_MODEL,
+                gemini_generate,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -339,8 +336,7 @@ async def image_to_html(image_bytes: bytes, mime_type: str) -> str:
             logger.info("template_gen_image_attempt", attempt=attempt)
 
             response = await run_blocking(
-                _client.models.generate_content,
-                model=settings.GEMINI_MODEL,
+                gemini_generate,
                 contents=[
                     types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                     _IMAGE_TO_HTML_PROMPT,
