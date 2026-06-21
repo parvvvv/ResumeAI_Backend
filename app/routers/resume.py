@@ -333,6 +333,7 @@ async def tailor(
     # Sanitize job description
     job_desc = sanitize_input(body.jobDescription)
     raw_text_length = base_resume.get("rawTextLength", 0)
+    rewrite_intensity = body.rewriteIntensity
 
     return StreamingResponse(
         _tailor_stream(
@@ -341,6 +342,7 @@ async def tailor(
             raw_text_length,
             body.baseResumeId,
             user_id,
+            rewrite_intensity,
         ),
         media_type="text/event-stream",
         headers={
@@ -355,12 +357,24 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
+def _map_intensity_to_level(value: int | None) -> str | None:
+    """Map user intensity 0-100 to one of the three AI levels. None/0 = auto."""
+    if value is None or value == 0:
+        return None
+    if 1 <= value <= 25:
+        return "enhancement"
+    if 26 <= value <= 50:
+        return "reframe"
+    return "transform"
+
+
 async def _tailor_stream(
     resume_data: dict,
     job_desc: str,
     raw_text_length: int,
     base_resume_id: str,
     user_id: str,
+    rewrite_intensity: int | None = None,
 ):
     """Async generator: yields SSE events as each AI step completes."""
     try:
@@ -393,6 +407,12 @@ async def _tailor_stream(
             async for chunk in proxy_stream(analyze_alignment(resume_data, job_desc), 1, 5, 25, align_res):
                 yield chunk
             alignment = align_res[0]
+
+            # Override rewriteIntensity if user provided a value
+            user_level = _map_intensity_to_level(rewrite_intensity)
+            if user_level:
+                alignment["rewriteIntensity"] = user_level
+                alignment["rewriteIntensityPercent"] = rewrite_intensity
 
             yield _sse("tailor_progress", {
                 "message": "Gap analysis complete - optimizing skills section...",

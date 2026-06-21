@@ -192,10 +192,11 @@ You are an elite resume strategist. Using the alignment analysis below, optimize
 ALIGNMENT ANALYSIS:
 {alignment_json}
 
-RULES based on rewriteIntensity:
-- "enhancement": Reorder categories so JD-priority skills come first. Add missing JD skills the candidate plausibly has. Keep all original skills.
-- "reframe": Rename/regroup categories to match JD domain. Reorder by relevance. Add plausible JD skills. You may drop clearly irrelevant niche skills.
-- "transform": DROP irrelevant technical categories entirely. Create new domain-relevant categories (e.g., for HR: "Talent Acquisition", "Communication & Collaboration"). Only keep transferable/overlapping skills.
+RULES based on rewriteIntensity (intensity: {rewrite_percent}%%):
+- 1-25%% (enhancement): Reorder categories so JD-priority skills come first. Add missing JD skills the candidate plausibly has. Keep all original skills.
+- 26-50%% (reframe): Rename/regroup categories to match JD domain. Reorder by relevance. Add plausible JD skills. You may drop clearly irrelevant niche skills.
+- 51-100%% (transform): DROP irrelevant technical categories entirely. Create new domain-relevant categories. Only keep transferable/overlapping skills.
+- Scale your changes proportionally to {rewrite_percent}%% — more aggressive at higher values.
 
 Output a JSON object with exactly one key:
 - "skills": array of objects, each with "name" (category name) and "items" (array of skill strings)
@@ -219,10 +220,12 @@ ALIGNMENT ANALYSIS:
 OPTIMIZED SKILLS (already rewritten - use these as context for keyword consistency):
 {skills_json}
 
-RULES based on rewriteIntensity:
-- "enhancement": Rewrite 30-40%% of bullet text. Add metrics, stronger verbs, JD keywords. Keep core structure.
-- "reframe": Rewrite 50-65%% of bullets. Restructure to emphasize transferable skills. Reorder bullets by JD relevance.
-- "transform": Rewrite 80-95%% of bullets. Completely reframe through the lens of the target role. Drop technical framing entirely.
+RULES:
+- Rewrite approximately {rewrite_percent}%% of bullet text.
+- At lower intensities (1-25%%): keep core structure, add metrics and stronger verbs, weave in JD keywords.
+- At moderate intensities (26-50%%): restructure to emphasize transferable skills, reorder bullets by JD relevance.
+- At higher intensities (51-100%%): completely reframe through the lens of the target role, drop irrelevant framing.
+- The {rewrite_percent}%% target is your PRIMARY directive — scale the depth of changes accordingly.
 
 NEVER change: company names, institution names, dates, number of entries.
 ALWAYS: quantify bullets, upgrade action verbs, weave in JD keywords naturally.
@@ -280,7 +283,7 @@ Output a JSON object with exactly two keys:
 - "resume": the final polished resume JSON (same schema: personalInfo, workExperience, skills, projects, education)
 - "analytics": object with these keys:
   - "atsScore": integer 0-100 (FOLLOW THE RUBRIC STRICTLY)
-  - "similarityToOriginal": integer 0-100 (reflect rewrite intensity: enhancement ~60-70, reframe ~40-55, transform ~25-40)
+  - "similarityToOriginal": integer 0-100 (reflects rewrite intensity: lower = more rewritten, target around {similarity_target} but adjust ±10 based on actual content preservation)
   - "keyChanges": array of 4-6 short strings describing the most significant changes made
   - "matchedKeywords": array of JD keywords now present in the resume
   - "missingKeywords": array of important JD keywords that could NOT be naturally incorporated
@@ -353,10 +356,12 @@ async def optimize_skills(base_data: dict, job_description: str, alignment: dict
     """
     Step 2 of 4: Optimize ONLY the skills section based on gaps and rewrite intensity.
     """
+    rewrite_percent = alignment.get("rewriteIntensityPercent") or 50
     prompt = _SKILLS_PROMPT_TEMPLATE.format(
         skills_json=json.dumps(base_data.get("skills", []), indent=2),
         alignment_json=json.dumps(alignment, indent=2),
         job_description=job_description,
+        rewrite_percent=rewrite_percent,
     )
 
     last_error = None
@@ -405,6 +410,7 @@ async def rewrite_experience(base_data: dict, job_description: str, alignment: d
     Step 3 of 4: Rewrite workExperience and projects based on the JS/Alignment logic.
     Provides the AI with the newly optimized skills to ensure keyword consistency.
     """
+    rewrite_percent = alignment.get("rewriteIntensityPercent") or 50
     # Reduce payload size to keep context tight
     limited_base_data = {
         "workExperience": base_data.get("workExperience", []),
@@ -416,6 +422,7 @@ async def rewrite_experience(base_data: dict, job_description: str, alignment: d
         alignment_json=json.dumps(alignment, indent=2),
         skills_json=json.dumps(optimized_skills, indent=2),
         job_description=job_description,
+        rewrite_percent=rewrite_percent,
     )
 
     last_error = None
@@ -464,10 +471,11 @@ async def final_polish(base_data: dict, assembled_data: dict, job_description: s
     Step 4 of 4: Final quality check, length optimization, and analytics generation.
     Returns (ResumeData (the final resume), analytics object).
     """
-    # ... logic for char_budget remains the same ...
+    rewrite_percent = alignment.get("rewriteIntensityPercent") or 50
+    similarity_target = max(10, 100 - rewrite_percent)
     char_budget = max(4000, raw_text_length)
-    if alignment.get("rewriteIntensity") == "transform":
-        char_budget = int(char_budget * 1.1)
+    # Scale char budget with intensity: more rewriting = more room
+    char_budget = int(char_budget * (1 + (rewrite_percent - 50) / 500))
 
     prompt = _POLISH_PROMPT_TEMPLATE.format(
         original_json=json.dumps(base_data, indent=2),
@@ -475,6 +483,7 @@ async def final_polish(base_data: dict, assembled_data: dict, job_description: s
         alignment_json=json.dumps(alignment, indent=2),
         job_description=job_description,
         char_budget=char_budget,
+        similarity_target=similarity_target,
     )
 
     last_error = None
