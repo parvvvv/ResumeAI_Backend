@@ -50,6 +50,7 @@ async def connect_db() -> None:
     await db.template_jobs.create_index("ownerUserId")
     await db.template_jobs.create_index("status")
     await db.template_jobs.create_index("createdAt")
+    # Resume template sessions
     await db.resume_template_sessions.create_index("userId")
     await db.resume_template_sessions.create_index("resumeId")
     await db.resume_template_sessions.create_index("templateId")
@@ -58,6 +59,12 @@ async def connect_db() -> None:
         [("userId", ASCENDING), ("resumeId", ASCENDING), ("templateId", ASCENDING)],
         unique=True,
     )
+
+    # Study Plans
+    await db.study_plans.create_index("userId")
+    await db.study_plans.create_index("status")  # "active" | "archived"
+    await db.study_plans.create_index("createdAt")
+    await db.study_plans.create_index([("userId", ASCENDING), ("status", ASCENDING), ("createdAt", DESCENDING)])
 
     # Jobs collection with TTL index (auto-delete after 24 hours)
     await db.jobs.create_index("createdAt", expireAfterSeconds=86400)

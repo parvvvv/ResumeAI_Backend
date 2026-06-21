@@ -62,7 +62,6 @@ def gemini_generate(
     *,
     contents: Any,
     config: Optional[types.GenerateContentConfig] = None,
-    timeout: Optional[float] = None,
     model: Optional[str] = None,
     **kwargs: Any,
 ) -> Any:
@@ -70,12 +69,12 @@ def gemini_generate(
     Synchronous generate_content with automatic 503 model fallback.
 
     Call via `await run_blocking(gemini_generate, contents=..., config=...)`.
+    Timeout is handled by the caller (e.g. run_blocking's asyncio.wait_for).
 
     Parameters match `client.models.generate_content` — the only addition is
     transparent fallback across models on 503 errors.
     """
     models = _model_chain() if model is None else [model]
-    timeout_secs = timeout or settings.GEMINI_TIMEOUT_SECONDS
 
     last_error: Exception | None = None
     for candidate_model in models:
@@ -86,8 +85,6 @@ def gemini_generate(
             }
             if config is not None:
                 call_kwargs["config"] = config
-            if timeout_secs is not None:
-                call_kwargs["timeout"] = timeout_secs
             call_kwargs.update(kwargs)
 
             response = client.models.generate_content(**call_kwargs)

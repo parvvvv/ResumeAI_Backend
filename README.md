@@ -60,6 +60,13 @@ The system implements a multi-stage recommendation pipeline:
 3. **Multi-Level Caching**: Job listings and full descriptions are cached in MongoDB for 24h to minimize API costs and latency.
 4. **Key Rotation**: Built-in redundancy for JSearch API keys with automatic failover and date-posted expansion (Today → 3 Days → 1 Week).
 
+### 📚 Study Planner (New POC)
+Shifting from "faking it" to "making it." The Study Planner is a high-value, retention-focused feature that takes the gap analysis between a user's resume and target JD to generate a personalized curriculum.
+- **Career Gap Analysis**: Identifies missing skills, lack of project evidence ("proof gaps"), and missing domain knowledge to generate a transparent Readiness Score.
+- **Portfolio Arc**: Designs a single, showcase-worthy project that covers the identified proof gaps and serves as the curriculum's centerpiece.
+- **Week-by-Week Streaming Pipeline**: Generates targeted 15-120 minute sessions via Server-Sent Events (SSE). Each session strictly adheres to the user's available time and outputs `searchQuery` targets instead of hallucinated URLs.
+- **Resume Evolution Loop**: Users mark sessions complete to maintain a "streak" (tracked in MongoDB). At the end of a week, completed tasks are passed to the AI to generate verifiable, impact-driven resume bullet points.
+
 ---
 
 ## 🛡️ Performance & Security

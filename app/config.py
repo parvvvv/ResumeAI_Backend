@@ -60,12 +60,14 @@ class Settings:
     JSEARCH_API_KEYS: list = []
     JSEARCH_HOST: str = "jsearch.p.rapidapi.com"
 
-    # --- Rate limits ---
-    RATE_LIMIT_AUTH: str = "5/minute"
-    RATE_LIMIT_AI: str = "10/minute"
-    RATE_LIMIT_PDF: str = "20/minute"
-    RATE_LIMIT_GENERAL: str = "60/minute"
-    RATE_LIMIT_JOBS: str = "5/minute"
+    # --- Rate limits (all cranked up for testing) ---
+    RATE_LIMIT_AUTH: str = "10000/minute"
+    RATE_LIMIT_AI: str = "10000/minute"
+    RATE_LIMIT_PDF: str = "10000/minute"
+    RATE_LIMIT_GENERAL: str = "10000/minute"
+    RATE_LIMIT_JOBS: str = "10000/minute"
+    RATE_LIMIT_STUDY_PLAN: str = "10000/hour"
+    RATE_LIMIT_RESUME_BULLETS: str = "10000/hour"
 
     # --- Concurrency ---
     AI_PIPELINE_CONCURRENCY: int = int(os.getenv("AI_PIPELINE_CONCURRENCY", "2"))
@@ -73,9 +75,14 @@ class Settings:
     PDF_RENDER_CONCURRENCY: int = int(os.getenv("PDF_RENDER_CONCURRENCY", "2"))
     BLOCKING_IO_CONCURRENCY: int = int(os.getenv("BLOCKING_IO_CONCURRENCY", "4"))
     TEMPLATE_GEN_CONCURRENCY: int = int(os.getenv("TEMPLATE_GEN_CONCURRENCY", "2"))
+    STUDY_PLAN_CONCURRENCY: int = int(os.getenv("STUDY_PLAN_CONCURRENCY", "2"))
 
     # --- Feature flags ---
     ENABLE_PUBLIC_CATALOG: bool = False
+
+    # --- Study Planner ---
+    MAX_STUDY_PLANS_PER_USER: int = int(os.getenv("MAX_STUDY_PLANS_PER_USER", "2"))  # admins: unlimited
+    STUDY_PLAN_SCHEMA_VERSION: int = 1  # Increment when prompt/schema changes
 
     def __init__(self) -> None:
         # Ensure upload directories exist

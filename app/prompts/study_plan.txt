@@ -1,0 +1,50 @@
+Study Planner Prompt Guide
+
+This file documents the prompt contract used by app.services.study_plan_service.
+The service keeps the executable templates in code so Python formatting stays
+easy to validate, but this text is the human-readable source of the generation
+rules.
+
+Global rules:
+- Generate one week at a time after a shared gap analysis and project skeleton.
+- Never output URLs. Resources must use title, type, and searchQuery only.
+- Every session must include rationale, practiceTask, deliverable, and
+  projectContribution.
+- Do not output resumeBulletSuggestion per session. Resume bullets are generated
+  at the end of a week from tasks the user actually completed.
+- Days are relative labels: Day 1, Day 2, etc. Do not use calendar weekdays.
+- Certifications are optional and low priority. Mention them only if the JD
+  explicitly requires them.
+- The portfolio project is the centerpiece of the plan.
+
+Gap analysis output:
+{
+  "careerGapAnalysis": {
+    "currentSkills": [],
+    "missingSkills": [],
+    "transferableSkills": [],
+    "priorityOrder": [],
+    "missingProjectTypes": [],
+    "missingExperience": [],
+    "proofGaps": [],
+    "missingCertifications": [],
+    "readinessScore": 0,
+    "readinessBreakdown": {
+      "technicalSkills": { "score": 0, "max": 100, "reason": "" },
+      "projectEvidence": { "score": 0, "max": 100, "reason": "" },
+      "experienceAlignment": { "score": 0, "max": 100, "reason": "" },
+      "domainKnowledge": { "score": 0, "max": 100, "reason": "" },
+      "interviewReadiness": { "score": 0, "max": 100, "reason": "" }
+    }
+  },
+  "planSkeleton": {
+    "targetRole": "",
+    "weekThemes": [],
+    "portfolioProjectArc": {
+      "finalProjectName": "",
+      "finalProjectDescription": "",
+      "techStack": [],
+      "weeklyMilestones": []
+    }
+  }
+}

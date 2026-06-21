@@ -236,11 +236,10 @@ class TestGeminiGenerate:
 
         from app.gemini_client import gemini_generate
 
-        gemini_generate(contents="prompt", config=cfg, timeout=30)
+        gemini_generate(contents="prompt", config=cfg)
 
         call_kwargs = mock_generate.call_args.kwargs
         assert call_kwargs["config"] is cfg
-        assert call_kwargs["timeout"] == 30
 
 
 # ---------------------------------------------------------------------------

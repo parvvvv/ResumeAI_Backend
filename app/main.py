@@ -14,7 +14,7 @@ from app.database import connect_db, disconnect_db, get_database
 from app.runtime import get_runtime, init_runtime, shutdown_runtime
 from app.security import SecurityHeadersMiddleware, RequestIDMiddleware, AuthContextMiddleware
 from app.middleware.rate_limit import limiter, rate_limit_exceeded_handler, SlowAPIMiddleware
-from app.routers import auth, resume, pdf, dashboard, notifications, jobs, chat, admin, templates
+from app.routers import auth, resume, pdf, dashboard, notifications, jobs, chat, admin, templates, study_plan
 
 # ---------------------------------------------------------------------------
 # Structured logging setup
@@ -79,7 +79,11 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL],
+    allow_origins=[
+        settings.FRONTEND_URL,
+        "http://localhost:5173",
+        "http://localhost:8000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -109,6 +113,7 @@ app.include_router(jobs.router)
 app.include_router(chat.router)
 app.include_router(admin.router)
 app.include_router(templates.router)
+app.include_router(study_plan.router)
 
 
 # ---------------------------------------------------------------------------
