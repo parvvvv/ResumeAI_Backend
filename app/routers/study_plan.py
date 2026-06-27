@@ -11,6 +11,7 @@ from app.models.study_plan import StudyPlanRequest, StudyProgressUpdate, Regener
 from app.services.study_plan_service import (
     generate_study_plan_stream, generate_resume_bullets,
     _WEEK_GENERATION_PROMPT, _validate_week, _generate_session_id,
+    _difficulty_guidance,
 )
 from app.gemini_client import gemini_generate
 from app.runtime import run_blocking
@@ -410,9 +411,12 @@ async def regenerate_week(
     milestones = project_arc.get("weeklyMilestones", [])
     milestone = milestones[week_num - 1] if week_num - 1 < len(milestones) else "Continue project development"
 
+    total_weeks = plan.get("config", {}).get("totalWeeks", 3)
+
     week_prompt = _WEEK_GENERATION_PROMPT.format(
         week_number=week_num,
-        total_weeks=plan.get("config", {}).get("totalWeeks", 3),
+        total_weeks=total_weeks,
+        difficulty_guidance=_difficulty_guidance(week_num, total_weeks),
         project_name=project_arc.get("finalProjectName", "Portfolio Project"),
         project_description=project_arc.get("finalProjectDescription", ""),
         milestone_from_skeleton=milestone,

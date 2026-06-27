@@ -1,5 +1,5 @@
 import json
-import logging
+import structlog
 import asyncio
 from typing import AsyncGenerator, Dict, Any, Optional, List
 import hashlib
@@ -16,7 +16,7 @@ from app.models.study_plan import (
 )
 from app.services.ai_service import _extract_json, _sanitize_resume_data, _post_process_strings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 # --- Prompts ---
 
@@ -114,16 +114,38 @@ Output ONLY valid JSON.
 _WEEK_GENERATION_PROMPT = """
 Generate ONLY Week {week_number} of a {total_weeks}-week study plan.
 
-THE PROJECT: "{project_name}" — {project_description}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PROGRESSIVE DIFFICULTY (CRITICAL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{difficulty_guidance}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+THE PROJECT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"{project_name}" — {project_description}
 THIS WEEK'S PROJECT MILESTONE: {milestone_from_skeleton}
 
-CONTEXT (do not repeat content from these):
-- Prior week themes: {prior_themes}
-- Prior week topics covered: {prior_topics_flat_list}
-- Proof gaps to address: {proof_gaps}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ANTI-DUPLICATION (MANDATORY)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You MUST NOT repeat, rephrase, or cover the same ground as any previously generated content.
+Previous week themes: {prior_themes}
+Topics ALREADY COVERED (DO NOT REPEAT THESE): {prior_topics_flat_list}
+
+If a topic was covered in a prior week, you may ONLY reference it as revision (max 1 revision
+session per day, max 15 minutes). New content MUST dominate every day.
+
+Each session title must be materially different from every title in the prior topics list.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GAP CONTEXT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Proof gaps still to address: {proof_gaps}
 - Priority skills remaining: {remaining_priority_skills}
 
-CONSTRAINTS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CONSTRAINTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Exactly {days_per_week} days (labeled "Day 1", "Day 2", etc. — NOT calendar days)
 - Each day totals {hours_per_day} hours (±10 minutes tolerance)
 - Sessions between 15-120 minutes each
@@ -133,6 +155,9 @@ CONSTRAINTS:
 
 THIS WEEK'S THEME: {theme_from_skeleton}
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FOR EVERY SESSION, you MUST include:
 1. rationale — WHY this task for THIS user. Reference specific gaps.
    Example: "Learning Docker because it appears in 78% of matching Backend roles and is missing from your resume."
@@ -173,7 +198,11 @@ Output a single StudyWeek JSON object with this structure:
           "resources": [{{"title": "...", "type": "docs|video|course|article|tool", "searchQuery": "..."}}],
           "practiceTask": "specific hands-on task",
           "deliverable": "tangible output",
-          "projectContribution": "how this feeds into the project (or empty)"
+          "projectContribution": "how this feeds into the project (or empty)",
+          "learningGoals": ["1-2 specific learning goals"],
+          "estimatedDifficulty": "easy|medium|hard",
+          "breakRecommendation": "short break suggestion e.g. '5-minute stretch'",
+          "endOfDayChecklist": ["1-2 checkbox verification tasks"]
         }}
       ]
     }}
@@ -244,6 +273,39 @@ def _validate_week(week: StudyWeek, config: StudyPlanRequest) -> list[str]:
     return errors
 
 
+def _difficulty_guidance(week_num: int, total_weeks: int) -> str:
+    """Return progressive difficulty instructions based on week position."""
+    if total_weeks == 1:
+        return "This is a single-week plan. Cover foundations AND practical application. Medium difficulty throughout."
+    
+    position = week_num / total_weeks  # 0.0 to 1.0
+    
+    if position <= 0.33:
+        return (
+            f"Week {week_num} is an EARLY week ({week_num}/{total_weeks}). "
+            "Difficulty: FOUNDATIONAL. Focus on: environment setup, core concepts, "
+            "quick wins to build confidence, and project scaffolding. "
+            "Sessions should be approachable — no one should feel overwhelmed in Week 1. "
+            "Theory-to-practice ratio: 60/40."
+        )
+    elif position <= 0.66:
+        return (
+            f"Week {week_num} is a MIDDLE week ({week_num}/{total_weeks}). "
+            "Difficulty: INTERMEDIATE. Focus on: deeper skill building, "
+            "core project features, pattern practice, and connecting concepts. "
+            "Assume the user now has the foundations from earlier weeks. "
+            "Theory-to-practice ratio: 40/60."
+        )
+    else:
+        return (
+            f"Week {week_num} is a LATE week ({week_num}/{total_weeks}). "
+            "Difficulty: ADVANCED. Focus on: integration, optimization, "
+            "interview-level challenges, project polish, deployment, and "
+            "mock interview preparation. Push the user — they should feel challenged. "
+            "Theory-to-practice ratio: 20/80."
+        )
+
+
 # --- Core Generation Logic ---
 
 async def generate_study_plan_stream(
@@ -311,6 +373,7 @@ async def generate_study_plan_stream(
             week_prompt = _WEEK_GENERATION_PROMPT.format(
                 week_number=w,
                 total_weeks=request.totalWeeks,
+                difficulty_guidance=_difficulty_guidance(w, request.totalWeeks),
                 project_name=project_arc.get("finalProjectName", "Portfolio Project"),
                 project_description=project_arc.get("finalProjectDescription", ""),
                 milestone_from_skeleton=milestone,
@@ -328,18 +391,20 @@ async def generate_study_plan_stream(
             # Try generation with 1 retry for validation
             week_data = None
             validation_errors = []
+            week_obj = None
             
             for attempt in range(2):
                 if attempt == 1 and validation_errors:
-                    logger.info("Retrying week generation due to validation errors", extra={"errors": validation_errors})
+                    logger.info("week_gen_retry", week=w, errors=validation_errors)
                     week_prompt += f"\n\nIMPORTANT PREVIOUS ERRORS TO FIX:\n" + "\n".join(validation_errors)
-                    
-                    week_response = await run_blocking(
-                        gemini_generate,
-                        contents=week_prompt,
-                        config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.4),
-                        timeout=settings.GEMINI_TIMEOUT_SECONDS,
-                    )
+                
+                # Generate on EVERY attempt (not just retries)
+                week_response = await run_blocking(
+                    gemini_generate,
+                    contents=week_prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.4),
+                    timeout=settings.GEMINI_TIMEOUT_SECONDS,
+                )
                 
                 try:
                     raw_week_json = _extract_json(week_response.text)
@@ -358,9 +423,9 @@ async def generate_study_plan_stream(
                     validation_errors = [f"JSON/Schema parsing error: {str(e)}"]
             
             if not week_data:
-                # If it still fails, use the last parsed one if available, otherwise skip or error
+                # If validation still fails, use the last parsed one if available
                 yield json.dumps({"type": "error", "message": f"Failed to generate valid Week {w} after retries."})
-                if 'week_obj' in locals():
+                if week_obj is not None:
                     week_data = week_obj
                 else:
                     raise ValueError(f"Could not generate valid Week {w}")

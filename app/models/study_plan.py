@@ -29,6 +29,10 @@ class StudySession(BaseModel):
     practiceTask: str = ""
     deliverable: str = ""
     projectContribution: str = ""
+    learningGoals: List[str] = Field(default_factory=list)
+    estimatedDifficulty: str = "medium"  # easy | medium | hard
+    breakRecommendation: str = ""
+    endOfDayChecklist: List[str] = Field(default_factory=list)
 
 
 class StudyDay(BaseModel):

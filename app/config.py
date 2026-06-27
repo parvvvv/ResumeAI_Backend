@@ -60,14 +60,14 @@ class Settings:
     JSEARCH_API_KEYS: list = []
     JSEARCH_HOST: str = "jsearch.p.rapidapi.com"
 
-    # --- Rate limits (all cranked up for testing) ---
-    RATE_LIMIT_AUTH: str = "10000/minute"
-    RATE_LIMIT_AI: str = "10000/minute"
-    RATE_LIMIT_PDF: str = "10000/minute"
-    RATE_LIMIT_GENERAL: str = "10000/minute"
-    RATE_LIMIT_JOBS: str = "10000/minute"
-    RATE_LIMIT_STUDY_PLAN: str = "10000/hour"
-    RATE_LIMIT_RESUME_BULLETS: str = "10000/hour"
+    # --- Rate limits ---
+    RATE_LIMIT_AUTH: str = "10/minute"
+    RATE_LIMIT_AI: str = "20/minute"
+    RATE_LIMIT_PDF: str = "15/minute"
+    RATE_LIMIT_GENERAL: str = "60/minute"
+    RATE_LIMIT_JOBS: str = "30/minute"
+    RATE_LIMIT_STUDY_PLAN: str = "5/hour"
+    RATE_LIMIT_RESUME_BULLETS: str = "10/hour"
 
     # --- Concurrency ---
     AI_PIPELINE_CONCURRENCY: int = int(os.getenv("AI_PIPELINE_CONCURRENCY", "2"))
