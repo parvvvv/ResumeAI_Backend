@@ -9,6 +9,7 @@ class UserSignup(BaseModel):
     """Request body for user registration."""
     email: EmailStr
     password: str = Field(..., min_length=8, description="Minimum 8 characters")
+    referralCode: str | None = Field(None, max_length=32, description="Optional referral code")
 
 
 class UserLogin(BaseModel):
@@ -25,6 +26,29 @@ class UserResponse(BaseModel):
     parsedCount: int = 0
     maxParses: int = 10
     bypassAttemptsLeft: int = 3
+    emailVerified: bool = True
+    referralCode: str | None = None
+
+
+class VerifyEmailRequest(BaseModel):
+    """Request body for email verification."""
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    """Request body to resend a verification email."""
+    email: EmailStr
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Request body to start a password reset."""
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Request body to complete a password reset."""
+    token: str
+    new_password: str = Field(..., min_length=8, description="Minimum 8 characters")
 
 
 class TokenResponse(BaseModel):

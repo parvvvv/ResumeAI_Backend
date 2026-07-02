@@ -62,6 +62,38 @@ def create_refresh_token(user_id: str) -> str:
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
+def create_action_token(
+    user_id: str,
+    action: str,
+    hours: int,
+    extra: dict | None = None,
+) -> str:
+    """
+    Create a short-lived single-purpose token (email verification, password
+    reset). `action` becomes the token's `type` claim so it can never be used
+    as an access/refresh token.
+    """
+    expire = datetime.now(timezone.utc) + timedelta(hours=hours)
+    payload = {
+        "sub": user_id,
+        "type": action,
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+    }
+    if extra:
+        payload.update(extra)
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def password_version(password_hash: str) -> str:
+    """
+    A short fingerprint of the current password hash. Embedded in reset
+    tokens so a token stops working as soon as the password changes
+    (stateless single-use semantics).
+    """
+    return password_hash[-12:]
+
+
 def decode_jwt(token: str, expected_type: str = "access") -> dict:
     """
     Decode and validate a JWT token.

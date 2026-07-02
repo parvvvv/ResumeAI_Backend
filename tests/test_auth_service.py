@@ -19,3 +19,46 @@ def test_access_token_includes_role():
     assert payload["sub"] == "user-1"
     assert payload["email"] == "admin@example.com"
     assert payload["role"] == "admin"
+
+
+# ---------------------------------------------------------------------------
+# Action tokens (email verification / password reset)
+# ---------------------------------------------------------------------------
+
+def test_action_token_round_trip():
+    from app.services.auth_service import create_action_token
+
+    token = create_action_token("user-9", "email_verify", hours=24)
+    payload = decode_jwt(token, expected_type="email_verify")
+
+    assert payload["sub"] == "user-9"
+    assert payload["type"] == "email_verify"
+
+
+def test_action_token_cannot_be_used_as_access_token():
+    from jose import JWTError
+    from app.services.auth_service import create_action_token
+
+    token = create_action_token("user-9", "password_reset", hours=1)
+    with pytest.raises(JWTError):
+        decode_jwt(token, expected_type="access")
+
+
+def test_access_token_cannot_be_used_for_reset():
+    from jose import JWTError
+
+    token = create_access_token("user-9", "u@example.com")
+    with pytest.raises(JWTError):
+        decode_jwt(token, expected_type="password_reset")
+
+
+def test_reset_token_carries_password_version():
+    from app.services.auth_service import create_action_token, password_version
+
+    pv = password_version("$2b$12$abcdefghijklmnopqrstuv")
+    token = create_action_token("user-9", "password_reset", hours=1, extra={"pv": pv})
+    payload = decode_jwt(token, expected_type="password_reset")
+
+    assert payload["pv"] == pv
+    # Version changes when the hash changes -> old tokens become invalid
+    assert password_version("$2b$12$differenthashvaluehere") != pv

@@ -39,6 +39,8 @@ class Settings:
     REDIS_URL: str = os.getenv("REDIS_URL", "")
 
     # --- Authentication ---
+    # Self-serve signup. When disabled, /signup requires X-Admin-API-Key.
+    ENABLE_SELF_SIGNUP: bool = os.getenv("ENABLE_SELF_SIGNUP", "true").lower() == "true"
     JWT_SECRET: str = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PRODUCTION")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
     JWT_EXPIRY_HOURS: int = int(os.getenv("JWT_EXPIRY_HOURS", "6"))
@@ -51,6 +53,12 @@ class Settings:
 
     # --- CORS ---
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+    # --- Transactional email (Resend; optional — accounts auto-verify when unset) ---
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "Hirecraft <onboarding@resend.dev>")
+    EMAIL_VERIFY_TOKEN_HOURS: int = int(os.getenv("EMAIL_VERIFY_TOKEN_HOURS", "24"))
+    PASSWORD_RESET_TOKEN_HOURS: int = int(os.getenv("PASSWORD_RESET_TOKEN_HOURS", "1"))
 
     # --- File uploads ---
     MAX_UPLOAD_SIZE_MB: int = 5

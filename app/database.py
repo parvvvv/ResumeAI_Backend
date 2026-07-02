@@ -30,6 +30,7 @@ async def connect_db() -> None:
     await db.users.create_index("email", unique=True)
     await db.users.create_index("createdAt")
     await db.users.create_index("role")
+    await db.users.create_index("referralCode", unique=True, sparse=True)
     await db.base_resumes.create_index("userId")
     await db.base_resumes.create_index("createdAt")
     await db.base_resumes.create_index([("userId", ASCENDING), ("createdAt", DESCENDING)])
