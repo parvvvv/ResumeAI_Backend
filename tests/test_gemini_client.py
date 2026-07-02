@@ -9,7 +9,7 @@ Covers:
 """
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, AsyncMock, patch, call
+from unittest.mock import MagicMock
 import asyncio
 
 import pytest
@@ -253,10 +253,14 @@ class TestGeminiStream:
         monkeypatch.setattr("app.gemini_client.settings.GEMINI_MODEL", "primary")
         monkeypatch.setattr("app.gemini_client.settings.GEMINI_FALLBACK_MODELS", ["fallback-1"])
 
-        fake_stream = AsyncMock()
+        chunks = [SimpleNamespace(text="a"), SimpleNamespace(text="b")]
+
+        async def fake_stream():
+            for chunk in chunks:
+                yield chunk
 
         async def fake_generate_stream(**kwargs):
-            return fake_stream
+            return fake_stream()
 
         mock_client = MagicMock()
         mock_client.aio.models.generate_content_stream = fake_generate_stream
@@ -265,21 +269,26 @@ class TestGeminiStream:
         from app.gemini_client import gemini_stream
 
         result = await gemini_stream(contents="prompt", timeout=10)
-        assert result is fake_stream
+        # The stream is wrapped for usage telemetry but yields chunks unchanged
+        assert [c async for c in result] == chunks
 
     @pytest.mark.asyncio
     async def test_fallback_on_503(self, monkeypatch):
         monkeypatch.setattr("app.gemini_client.settings.GEMINI_MODEL", "primary")
         monkeypatch.setattr("app.gemini_client.settings.GEMINI_FALLBACK_MODELS", ["fallback-1"])
 
-        fake_stream = AsyncMock()
+        chunks = [SimpleNamespace(text="a")]
         call_log = []
+
+        async def fake_stream():
+            for chunk in chunks:
+                yield chunk
 
         async def fake_generate_stream(**kwargs):
             call_log.append(kwargs["model"])
             if kwargs["model"] == "primary":
                 raise _make_503_error()
-            return fake_stream
+            return fake_stream()
 
         mock_client = MagicMock()
         mock_client.aio.models.generate_content_stream = fake_generate_stream
@@ -289,7 +298,7 @@ class TestGeminiStream:
 
         result = await gemini_stream(contents="prompt", timeout=10)
 
-        assert result is fake_stream
+        assert [c async for c in result] == chunks
         assert call_log == ["primary", "fallback-1"]
 
     @pytest.mark.asyncio

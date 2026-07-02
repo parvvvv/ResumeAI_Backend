@@ -47,6 +47,11 @@ async def init_runtime() -> RuntimeResources:
     if _runtime is not None:
         return _runtime
 
+    # Let telemetry hop from worker threads back onto the event loop
+    from app.services.llm_usage_service import set_main_loop
+
+    set_main_loop(asyncio.get_running_loop())
+
     concurrency = ConcurrencyConfig(
         ai_pipeline_limit=settings.AI_PIPELINE_CONCURRENCY,
         chat_limit=settings.CHAT_CONCURRENCY,

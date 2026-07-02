@@ -19,9 +19,10 @@ import structlog
 logger = structlog.get_logger()
 
 # Load prompt templates
+# NOTE: tailor.txt / study_plan.txt in prompts/ are reference documentation only;
+# the live tailoring prompts are the inline *_PROMPT_TEMPLATE constants below.
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 _PARSE_PROMPT = (_PROMPTS_DIR / "parse.txt").read_text()
-_TAILOR_PROMPT = (_PROMPTS_DIR / "tailor.txt").read_text()
 
 _MAX_RETRIES = 2
 

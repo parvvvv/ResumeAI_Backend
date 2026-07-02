@@ -34,6 +34,20 @@ structlog.configure(
 
 logger = structlog.get_logger()
 
+# ---------------------------------------------------------------------------
+# Error monitoring (optional — enabled only when SENTRY_DSN is set)
+# ---------------------------------------------------------------------------
+if settings.SENTRY_DSN:
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        environment=settings.APP_ENV,
+        traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+        send_default_pii=False,
+    )
+    logger.info("sentry_enabled", environment=settings.APP_ENV)
+
 
 # ---------------------------------------------------------------------------
 # Application lifecycle
@@ -46,11 +60,17 @@ async def lifespan(app: FastAPI):
     from app.services.template_service import seed_system_templates
     await seed_system_templates()
     app.state.runtime = await init_runtime()
+    from app.services.notification_service import notification_service
+    await notification_service.start()
+    if settings.ENABLE_TEMPLATE_PLATFORM:
+        from app.services.template_gen_service import recover_stale_template_jobs
+        await recover_stale_template_jobs()
     logger.info("app_started", database=settings.MONGO_DB_NAME)
     yield
     # Shutdown: close shared Playwright browser
     from app.services.pdf_service import shutdown_browser
     await shutdown_browser()
+    await notification_service.stop()
     await shutdown_runtime()
     await disconnect_db()
     logger.info("app_stopped")
@@ -60,7 +80,7 @@ async def lifespan(app: FastAPI):
 # App creation
 # ---------------------------------------------------------------------------
 app = FastAPI(
-    title="ResumeAI API",
+    title="Hirecraft API",
     description="AI-powered resume parsing, tailoring, and PDF generation",
     version="1.0.0",
     lifespan=lifespan,

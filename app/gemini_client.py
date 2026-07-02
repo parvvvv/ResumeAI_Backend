@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, AsyncIterator, Optional
 
 from google import genai
@@ -26,6 +27,7 @@ from google.genai.errors import ServerError
 
 from app.config import settings
 from app.runtime import run_blocking
+from app.services.llm_usage_service import record_usage
 import structlog
 
 logger = structlog.get_logger()
@@ -87,7 +89,13 @@ def gemini_generate(
                 call_kwargs["config"] = config
             call_kwargs.update(kwargs)
 
+            started = time.monotonic()
             response = client.models.generate_content(**call_kwargs)
+            record_usage(
+                model=candidate_model,
+                usage_metadata=getattr(response, "usage_metadata", None),
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
             return response
 
         except Exception as exc:
@@ -113,6 +121,23 @@ def gemini_generate(
 # ---------------------------------------------------------------------------
 # Async streaming generation with 503 fallback
 # ---------------------------------------------------------------------------
+
+async def _stream_with_usage(stream: AsyncIterator, model: str, started: float) -> AsyncIterator:
+    """Yield chunks unchanged while capturing usage metadata from the final chunk."""
+    usage_metadata = None
+    try:
+        async for chunk in stream:
+            meta = getattr(chunk, "usage_metadata", None)
+            if meta is not None:
+                usage_metadata = meta
+            yield chunk
+    finally:
+        record_usage(
+            model=model,
+            usage_metadata=usage_metadata,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            streamed=True,
+        )
 
 async def gemini_stream(
     *,
@@ -147,11 +172,12 @@ async def gemini_stream(
                 call_kwargs["config"] = config
             call_kwargs.update(kwargs)
 
+            started = time.monotonic()
             stream = await asyncio.wait_for(
                 client.aio.models.generate_content_stream(**call_kwargs),
                 timeout=timeout_secs,
             )
-            return stream
+            return _stream_with_usage(stream, candidate_model, started)
 
         except Exception as exc:
             last_error = exc

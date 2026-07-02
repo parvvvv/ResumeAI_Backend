@@ -37,11 +37,15 @@ def _get_user_or_ip(request: Request) -> str:
     return get_remote_address(request)
 
 
-# Global limiter instance - attach to app in main.py
+# Global limiter instance - attach to app in main.py.
+# With REDIS_URL set, limits are shared across instances (required for
+# horizontal scaling); otherwise falls back to per-process memory storage.
+# in_memory_fallback keeps the API serving if Redis becomes unreachable.
 limiter = Limiter(
     key_func=_get_user_or_ip,
     default_limits=[settings.RATE_LIMIT_GENERAL],
-    storage_uri="memory://",
+    storage_uri=settings.REDIS_URL or "memory://",
+    in_memory_fallback_enabled=bool(settings.REDIS_URL),
 )
 
 

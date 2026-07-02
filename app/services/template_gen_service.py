@@ -21,6 +21,8 @@ from app.gemini_client import gemini_generate
 from app.models.template import TemplateSchema, TemplateFieldDefinition
 from app.runtime import run_blocking
 from app.security import sanitize_template_html, validate_jinja_safety
+from app.services.ai_service import _extract_json
+from app.services.llm_usage_service import bind_llm_context
 import structlog
 
 logger = structlog.get_logger()
@@ -75,7 +77,7 @@ _DEFAULT_PREVIEW_SEED = {
         ],
         "projects": [
             {
-                "name": "ResumeAI Platform",
+                "name": "Hirecraft Platform",
                 "description": "An AI-powered resume builder with template marketplace and ATS scoring.",
                 "points": [
                     "Built a Jinja2-based template engine with sandboxed rendering for security.",
@@ -211,17 +213,6 @@ RULES:
 
 Output ONLY the complete HTML document. No markdown code blocks, no explanation.
 """
-
-
-def _extract_json(text: str) -> str:
-    """Extract JSON from AI response text."""
-    code_block_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-    if code_block_match:
-        return code_block_match.group(1).strip()
-    json_match = re.search(r"\{.*\}", text, re.DOTALL)
-    if json_match:
-        return json_match.group(0).strip()
-    return text.strip()
 
 
 def _extract_html(text: str) -> str:
@@ -375,6 +366,9 @@ async def create_template_job(
     Create a template generation job in the queue.
     Returns the job ID.
     """
+    # asyncio.create_task copies the current context, so this attribution
+    # propagates into the background processing task's LLM calls.
+    bind_llm_context(user_id=owner_user_id, feature="template_generate")
     db = get_database()
     job_id = uuid4().hex
     now = datetime.now(timezone.utc)
@@ -404,6 +398,40 @@ async def create_template_job(
     asyncio.create_task(_process_template_job(job_id))
 
     return job_id
+
+
+async def recover_stale_template_jobs(max_age_hours: int = 24) -> int:
+    """
+    Requeue jobs orphaned by a crash/redeploy (stuck in queued/processing).
+
+    Jobs keep their raw input in the document, so they can simply be
+    re-processed. Jobs older than `max_age_hours` are marked failed instead
+    of silently retried. Returns the number of jobs requeued.
+    """
+    db = get_database()
+    now = datetime.now(timezone.utc)
+    cutoff = now.timestamp() - max_age_hours * 3600
+
+    requeued = 0
+    async for job in db.template_jobs.find({"status": {"$in": ["queued", "processing"]}}):
+        updated_at = job.get("updatedAt") or job.get("createdAt") or now
+        if updated_at.tzinfo is None:  # pymongo returns naive UTC datetimes
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        if updated_at.timestamp() < cutoff:
+            await _update_job_status(
+                job["_id"], "failed",
+                {"errorMessage": "Job expired before processing completed."},
+            )
+            continue
+
+        bind_llm_context(user_id=job.get("ownerUserId"), feature="template_generate")
+        await _update_job_status(job["_id"], "queued")
+        asyncio.create_task(_process_template_job(job["_id"]))
+        requeued += 1
+
+    if requeued:
+        logger.info("template_jobs_recovered", count=requeued)
+    return requeued
 
 
 async def get_template_job(job_id: str, user_id: str) -> Optional[dict]:

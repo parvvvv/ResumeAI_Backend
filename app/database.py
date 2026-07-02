@@ -87,6 +87,11 @@ async def connect_db() -> None:
     # Templates — compound index for public catalog queries
     await db.templates.create_index([("visibility", ASCENDING), ("status", ASCENDING)])
 
+    # LLM usage telemetry — per-user / per-feature spend attribution
+    await db.llm_usage.create_index([("userId", ASCENDING), ("createdAt", DESCENDING)])
+    await db.llm_usage.create_index([("feature", ASCENDING), ("createdAt", DESCENDING)])
+    await db.llm_usage.create_index("createdAt")
+
 
 async def disconnect_db() -> None:
     """Close MongoDB connection."""

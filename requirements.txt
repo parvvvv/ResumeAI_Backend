@@ -13,8 +13,11 @@ playwright
 jinja2
 pydantic[email]
 slowapi
+limits[redis]
+redis
 bleach
 structlog
+sentry-sdk[fastapi]
 supabase
 httpx
 pytest

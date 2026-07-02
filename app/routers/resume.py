@@ -13,6 +13,7 @@ from app.models.resume import ResumeData
 from app.models.generated import GenerateResumeRequest
 from app.services.ai_service import parse_resume, analyze_alignment, optimize_skills, rewrite_experience, final_polish, generate_summary
 from app.services.notification_service import notification_service, Notification
+from app.services.llm_usage_service import bind_llm_context
 from app.runtime import get_runtime, run_blocking
 from app.middleware.auth import get_current_user_id
 from app.middleware.rate_limit import limiter
@@ -48,6 +49,7 @@ async def upload_and_parse(
     Upload a PDF resume, extract text, parse with AI, and store as base resume.
     Returns the parsed structured JSON.
     """
+    bind_llm_context(user_id=user_id, feature="resume_parse")
     db = get_database()
 
     # Retrieve user and validate roles/quotas
@@ -378,6 +380,7 @@ async def _tailor_stream(
 ):
     """Async generator: yields SSE events as each AI step completes."""
     try:
+        bind_llm_context(user_id=user_id, feature="resume_tailor")
         total_chars = 0
         EXPECTED_CHARS = 7000
         runtime = get_runtime()

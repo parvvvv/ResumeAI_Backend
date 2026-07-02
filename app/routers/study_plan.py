@@ -16,6 +16,7 @@ from app.services.study_plan_service import (
 from app.gemini_client import gemini_generate
 from app.runtime import run_blocking
 from app.services.ai_service import _extract_json, _sanitize_resume_data, _post_process_strings
+from app.services.llm_usage_service import bind_llm_context
 from app.middleware.auth import get_current_user_id
 from app.middleware.rate_limit import limiter
 from app.config import settings
@@ -89,6 +90,7 @@ async def generate_study_plan(
     # 4. Stream Response
     async def sse_generator():
         try:
+            bind_llm_context(user_id=user_id, feature="study_plan_generate")
             # We will collect the data to save to the database
             plan_doc = {
                 "userId": user_id,
@@ -369,6 +371,7 @@ async def regenerate_week(
     db=Depends(get_database)
 ):
     """Regenerate a single week of the plan, preserving progress on other weeks."""
+    bind_llm_context(user_id=user_id, feature="study_plan_regenerate_week")
     plan = await db.study_plans.find_one({"_id": ObjectId(plan_id), "userId": user_id})
     if not plan:
         raise HTTPException(status_code=404, detail="Study plan not found")
@@ -535,6 +538,7 @@ async def get_resume_bullets(
     db=Depends(get_database)
 ):
     """Generate resume bullets for completed tasks in a given week."""
+    bind_llm_context(user_id=user_id, feature="study_plan_resume_bullets")
     plan = await db.study_plans.find_one({"_id": ObjectId(plan_id), "userId": user_id})
     if not plan:
         raise HTTPException(status_code=404, detail="Study plan not found")

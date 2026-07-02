@@ -18,6 +18,10 @@ class Settings:
     # --- Environment ---
     APP_ENV: str = os.getenv("APP_ENV", "local")
 
+    # --- Observability (optional; no-op when unset) ---
+    SENTRY_DSN: str = os.getenv("SENTRY_DSN", "")
+    SENTRY_TRACES_SAMPLE_RATE: float = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
+
     # --- AI ---
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = "gemini-3-flash-preview"
@@ -30,6 +34,9 @@ class Settings:
     # --- Database ---
     MONGO_URI: str = os.getenv("MONGO_URI", "mongodb://localhost:27017")
     MONGO_DB_NAME: str = "resumeai"
+
+    # --- Redis (optional; shared rate limiting across instances when set) ---
+    REDIS_URL: str = os.getenv("REDIS_URL", "")
 
     # --- Authentication ---
     JWT_SECRET: str = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PRODUCTION")
